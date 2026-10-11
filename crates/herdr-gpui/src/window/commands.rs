@@ -272,6 +272,10 @@ impl HerdrWindow {
                 self.split_active_group(window, cx);
                 return;
             }
+            Command::OpenCodeOn => {
+                self.open_code_on(None, window, cx);
+                return;
+            }
             Command::OpenCode => {
                 self.open_code(None, window, cx);
                 return;

@@ -22,7 +22,7 @@ use std::{
 /// VS Code's server license, which `code serve-web` asks its user to accept.
 pub(crate) const LICENSE_URL: &str = "https://aka.ms/vscode-server-license";
 pub(crate) const PRIVACY_URL: &str = "https://privacy.microsoft.com/en-US/privacystatement";
-pub(crate) const LICENSE_TERMS: &str = "VS Code's server is Microsoft software. Starting it \
+pub(crate) const LICENSE_TERMS: &str = "VS Code's server is Microsoft software. Installing or starting it on the chosen machine \
      accepts the Visual Studio Code Server License Terms and the Microsoft Privacy Statement, \
      so the app starts it only once you accept them.";
 
@@ -434,8 +434,6 @@ impl Launcher {
         }
     }
 
-    // These narrow APIs are consumed by the next editor integration leaves.
-    #[allow(dead_code)]
     pub(crate) fn startup_target(cx: &App, code: &CodeConfig, target: &super::Target) -> Startup {
         if target == &super::Target::Configured
             && !cx.try_global::<Self>().is_some_and(Self::uses_managed)
@@ -463,8 +461,6 @@ impl Launcher {
         }
     }
 
-    // The following editor leaf also calls this compatibility API on Windows.
-    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn want_target(
         cx: &mut App,
         code: &CodeConfig,
@@ -486,7 +482,6 @@ impl Launcher {
         Err(super::Error::UnsupportedTarget.into())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn alive_target(cx: &App, target: &super::Target) -> bool {
         if target == &super::Target::Configured
             && !cx.try_global::<Self>().is_some_and(Self::uses_managed)
@@ -501,7 +496,6 @@ impl Launcher {
         false
     }
 
-    #[allow(dead_code)]
     pub(crate) fn phase(cx: &App, target: &super::Target) -> Option<Phase> {
         #[cfg(unix)]
         if let Some(launcher) = cx.try_global::<Self>() {
@@ -511,7 +505,6 @@ impl Launcher {
         None
     }
 
-    #[allow(dead_code)]
     pub(crate) fn generation(cx: &App, target: &super::Target) -> Option<u64> {
         #[cfg(unix)]
         if let Some(launcher) = cx.try_global::<Self>() {
@@ -521,7 +514,6 @@ impl Launcher {
         None
     }
 
-    #[allow(dead_code)]
     pub(crate) fn sync_targets(cx: &mut App, hosts: &[herdr_client::SavedHost]) {
         #[cfg(unix)]
         if cx.has_global::<Self>() {
@@ -530,7 +522,6 @@ impl Launcher {
         let _ = (cx, hosts);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn retry_target(cx: &mut App, target: &super::Target) {
         if target == &super::Target::Configured
             && !cx.try_global::<Self>().is_some_and(Self::uses_managed)

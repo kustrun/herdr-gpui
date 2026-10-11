@@ -2125,119 +2125,94 @@ herdr-gpui browser skill > ~/.claude/skills/herdr-gpui-browser/SKILL.md
 
 ## VS Code
 
-VS Code opens as a tab of a space's editor groups, like a browser tab, for
-reading code and reviewing diffs while agents work in the terminals: split
-the group to see it beside a terminal, or show it alone. It is a second frontend beside Herdr's: the
-page comes from VS Code's own web server, `code serve-web`, and the app adds
-nothing to what that server serves.
+On macOS, a workspace can hold several VS Code tabs, each backed by a different
+machine. **Open VS Code** (`cmd-alt-e`, `open_code`) opens the workspace's owning
+machine in automatic mode. **Open VS Code On** (`cmd-alt-shift-e`, `open_code_on`)
+opens a searchable machine picker in the same workspace. Both actions appear in
+the Terminal menu, each editor group's **…** menu, the command palette, and
+Keyboard Shortcuts. Rebind them under `[keybindings]`; `""` or `[]` unbinds them:
 
-**Settings > Code** chooses where that server comes from.
-
-**Start VS Code automatically**, the default once VS Code is found, has the
-app run the server itself. It looks for VS Code's `code` command on your
-login shell's `PATH`, then, on macOS, in
-`/Applications/Visual Studio Code.app`, and runs the `code-tunnel` program
-beside it, which is what `code serve-web` runs:
-
-```sh
-code-tunnel serve-web --host 127.0.0.1 --port <port> \
-  --connection-token-file <state>/vscode-token --accept-server-license-terms
+```toml
+[keybindings]
+open_code = "cmd-alt-e"
+open_code_on = "cmd-alt-shift-e"
 ```
 
-- The server is Microsoft software under the
-  [VS Code Server License Terms](https://aka.ms/vscode-server-license). The
-  app never accepts them for you: the VS Code tab and the settings page show them
-  with **Accept and start**, and only after that does the app pass
-  `--accept-server-license-terms`. The acceptance is saved as
-  `license_accepted = true` under `[code]`.
-- It starts the first time a VS Code tab needs a page, never before, and says "Starting VS Code… (the first run downloads it)"
-  until VS Code answers: the first start downloads the server build.
-- The port is picked once and saved as `port` under `[code]`, since VS Code
-  keeps its settings in the storage of the page's address. If another
-  program holds that port, the VS Code tab and the settings page say so; quit it,
-  or remove `port` to have a new one picked (VS Code then starts without the
-  settings it kept). The app sends nothing to a port it does not hold, since
-  the token must reach only its own server. It asks that server for its
-  version alone, never with the token, once its own `serve-web` says it
-  listens there, and counts the answer only if `serve-web` still runs after
-  it; a page, which must carry the token, is made only while it runs.
-- The connection token is made once and kept in `vscode-token` in the app's
-  state folder (`~/.local/state/herdr/gpui` unless `XDG_STATE_HOME` is set),
-  readable only by you on macOS; on Windows it has your profile folder's
-  permissions. It is passed by that file's path,
-  never shown, and never logged; messages name only the host and port.
-- The app owns that one process. It stops it when it quits: it asks the
-  server and what it started to stop, and kills them if they have not after
-  a moment. On macOS the server runs in a process group of its own, made
-  for it, since `serve-web` leaves its server running when only it
-  is stopped; Windows ends the server's process tree with `taskkill /T`. If
-  the server stops or fails, the VS Code tab shows **Cannot reach the VS Code
-  server** with the reason, and the app starts it again, waiting 1 second,
-  then twice as long each time, up to a minute.
-- Spaces on SSH hosts still see this computer's VS Code: their folders are on
-  another machine, so their pages open an empty window. Running the server on
-  the host would need it started there and its port forwarded, which the app
-  does not do.
+The picker offers **Local**, saved SSH machines, and **Configured** when available.
+Enabled SSH entries remain available while their Herdr daemon is offline: the
+editor connects on demand using that saved SSH connection. Unsupported or disabled
+entries show a reason. This feature supports a macOS client, local macOS, and SSH
+Linux/macOS x64 or arm64 servers (Linux needs compatible glibc). Windows servers,
+WSL, and cloud connections are unsupported; a failed choice never opens Local
+instead. Existing configured VS Code behavior on Windows is retained. Linux
+clients cannot embed pages or start editor servers.
 
-**Use an address** keeps a server you run yourself, as before:
+For example, choose **Server A**, split the group, then choose **Server B**. Both
+editors stay in the current Herdr workspace. Opening a machine again reveals its
+existing tab without resetting its folder or navigation. Different workspaces
+and windows share one running server per machine. Created pages keep running while
+hidden; merely restoring an unseen tab starts nothing. Closing a workspace drops
+its editor tabs without stopping its Herdr terminals.
+
+A new editor opens the workspace's absolute launch folder, such as
+`/projects/example`, only when the editor is on the same machine. An editor on
+another machine starts empty. **Open Folder** chooses a directory on that backing
+machine; the app does not guess mappings or create directories. Tab labels show
+the backing machine and stay independent of page titles. Removing, disabling,
+or editing a saved SSH destination makes old tabs unavailable; explicitly choose
+the current entry to open its new binding.
+
+**Settings > Code** controls the default source and license acceptance:
+
+- **Start VS Code automatically** is the macOS default without an explicit
+  address. The app first reuses a working VS Code CLI. If needed, it downloads a
+  stable official CLI, verifies its SHA256, and installs it atomically in a
+  private user cache on the chosen machine. It changes neither the system PATH
+  nor Herdr and requires no system package installation.
+- Installation and startup wait until a displayed editor needs the machine and
+  you accept the [VS Code Server License Terms](https://aka.ms/vscode-server-license)
+  and [Microsoft Privacy Statement](https://privacy.microsoft.com/en-US/privacystatement).
+  The tab and Settings show **Accept and start**; acceptance is saved as
+  `[code] license_accepted = true` and covers the chosen machine.
+- Each tab shows its machine's preparing, installing, starting, connection, or
+  failure state. **Retry** restarts that target's attempt. Permanent failures
+  require Retry; transient failures retain bounded backoff. Another machine's
+  pages and attempts stay independent.
+- Managed servers listen only on loopback. SSH servers use a private forwarding
+  connection. The local origin is picked once and retained across restarts; a
+  later port collision reports an error instead of choosing another origin.
+  Managed machines have separate persistent WebKit stores, while pages backed
+  by the same machine share cookies and state. Configured tabs retain their
+  existing browser profile.
+- Tokens are injected into owned live pages only after readiness checks. Saved
+  editor navigation omits connection tokens while retaining folder, query, and
+  fragment state. The app stops its owned servers and forwarding connections
+  when it quits; remote cleanup uses the owned connection's bounded lease.
+
+**Use an address** retains a server you run yourself. For example:
 
 ```sh
 code serve-web --host 127.0.0.1 --port 8000 --accept-server-license-terms
 ```
 
-It prints the address to open, with a `?tkn=` connection token. Paste that
-address in **Settings > Code**, which saves it in `config-gpui.local.toml`:
+Paste its printed address, including the connection token, into Settings:
 
 ```toml
 [code]
 mode = "address"
-url = "http://127.0.0.1:8000/?tkn=..."
+url = "http://127.0.0.1:8000/?tkn=fictional-token"
 ```
 
-A config with a `url` but no `mode`, as written before there was a choice,
-keeps using its address. Keep the port fixed: VS Code keeps its settings in
-the page's storage, which belongs to one address.
+A `url` without a `mode` also selects Configured for direct Open VS Code.
+**Test connection** checks the version and token without logging the token.
+Changing this address retargets Configured tabs only, preserving their navigation.
+The machine picker can still open managed Local or SSH editors independently.
 
-- **Test connection** on that page asks the server whether it answers. A
-  server that does shows its build's commit; one that does not says why: the
-  connection was refused, the token was refused, or the address is not a
-  VS Code server. Messages name only the host and port, never the token.
-- **VS Code** in an editor group's **…** menu, beside the VS Code icon,
-  opens the space's VS Code tab in that group. The row appears once a
-  server is set, or VS Code is found to start, in builds that can show
-  pages. **Open VS Code** in the Terminal menu or the command palette opens
-  it in the group in use, as does a key you bind to `open_code` under
-  `[keybindings]`. It has no default key.
-- Each space has one VS Code tab, listed in its strips with its other tabs.
-  Opening it again shows that same tab in the group it is opened from, so
-  one group can show VS Code beside another showing a terminal, or a lone
-  group can show it alone. It splits, resizes, and is covered by dialogs as
-  any page is, and its page keeps running, keeping its state, while no group
-  shows it; closing the space in Herdr closes it. It still waits for its
-  server, and no agent opens pages in it.
-- The page opens on the address above, then goes wherever it navigates, and
-  comes back there after a restart. A space's page first opens the folder
-  the space started in, as its first tab's first terminal reports it, when
-  the space is on this computer; a space on an SSH host opens an empty
-  window, since its folder is on another machine than the server. **Open
-  Folder** in VS Code picks another; the page then remembers it.
-- The app asks the server whether it answers before it opens a page, since a
-  page that cannot load stays blank. Linux builds show no pages, so they
-  never start VS Code either. While the server does not answer, the tab says
-  so and why, and asks again every 5 seconds. Setting a new address moves
-  each VS Code tab to the new server, where it stays in its group with its
-  folder. A new token for the same server reopens each page where it was,
-  with the new token, and so does a restart.
-- VS Code fills its tab, without a browser tab's address bar, back,
-  forward, reload, or **Annotate**: it is an editor, not a page to browse.
-  Its page is otherwise a [browser tab](#browser-tabs)'s, so the same rules
-  apply: `http` and `https` only, native web views drawn above the window,
-  and no pages on Linux.
-- The keyboard goes to whatever has focus. While a page has it, this one or a
-  browser tab's, the page's own shortcuts win, as a terminal program's do
-  while its pane has focus. On macOS, Cut, Copy, and Paste act on the page,
-  and the keys macOS keeps for the app (quit, hide, minimize, and cycling
-  windows) still reach the app. Click a terminal to take the keyboard back.
+VS Code fills its tab without a browser toolbar or annotation controls. On macOS,
+its focused native page recognizes the two resolved direct launch bindings,
+including overrides, unbinding, and reloads. Other editor shortcuts and text/IME
+input stay with the editor; Cut, Copy, Paste, and Paste and Match Style retain
+native page handling. Prefix chords are not added to focused native pages.
 
 ## System Notifications
 

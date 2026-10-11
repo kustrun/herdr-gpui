@@ -20,12 +20,15 @@ use wry::raw_window_handle::HasWindowHandle;
 /// Enough for a burst of title and load reports between two window ticks;
 /// later ones are dropped rather than queued without bound.
 const EVENT_CAPACITY: usize = 64;
+static NEXT_CODE_SOURCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// What a page reported, from the tab `P` names. Handlers run on the
 /// platform's callbacks, so they only queue these for the window to apply on
 /// its next tick.
 #[derive(Debug)]
 pub(crate) enum Event<P = TabId> {
+    #[cfg(target_os = "macos")]
+    CodeCommand(P, crate::controls::Command),
     Title(P, String),
     Loaded(P, String),
     /// The page asked for a new window, which becomes a new, unrelated tab.
@@ -56,6 +59,7 @@ pub(crate) enum Event<P = TabId> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Source {
     Tab(TabId),
+    Code(TabId, u64),
     #[cfg(target_os = "macos")]
     Popup(u64),
 }
@@ -69,6 +73,8 @@ impl Event<Source> {
     /// for a popup no tab adopted.
     fn resolve(self, tab: impl Fn(Source) -> Option<TabId>) -> Option<Event> {
         Some(match self {
+            #[cfg(target_os = "macos")]
+            Self::CodeCommand(source, command) => Event::CodeCommand(tab(source)?, command),
             Self::Title(source, title) => Event::Title(tab(source)?, title),
             Self::Loaded(source, url) => Event::Loaded(tab(source)?, url),
             Self::NewWindow(source, url) => Event::NewWindow(tab(source)?, url),
@@ -85,12 +91,32 @@ impl Event<Source> {
     }
 }
 
+impl Event {
+    pub(super) fn id(&self) -> TabId {
+        match self {
+            Self::Title(id, _)
+            | Self::Loaded(id, _)
+            | Self::NewWindow(id, _)
+            | Self::Posted(id, _) => *id,
+            #[cfg(target_os = "macos")]
+            Self::CodeCommand(id, _)
+            | Self::Opened(id, ..)
+            | Self::Closed(id)
+            | Self::Captured(id, ..)
+            | Self::Frozen(id, _) => *id,
+        }
+    }
+}
+
 /// Longer posts are dropped before they are queued.
 const MAX_POST_BYTES: usize = 64 * 1024;
 
 pub(crate) struct Pages {
     pages: HashMap<TabId, Entity<WebView>>,
     shown: Vec<TabId>,
+    code_sources: HashMap<TabId, u64>,
+    #[cfg(target_os = "macos")]
+    code_keys: HashMap<TabId, usize>,
     outbox: Outbox,
     events: Receiver<Event<Source>>,
     /// The tab each adopted popup became.
@@ -109,6 +135,9 @@ impl Default for Pages {
         Self {
             pages: HashMap::new(),
             shown: Vec::new(),
+            code_sources: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            code_keys: HashMap::new(),
             outbox: Outbox {
                 sender,
                 #[cfg(target_os = "macos")]
@@ -196,7 +225,13 @@ fn new_window(
                     Err(_) => wry::NewWindowResponse::Deny,
                 };
             }
-            Err(error) => tracing::debug!(%error, "Cannot build a popup"),
+            Err(error) => {
+                if matches!(opener, Source::Code(..)) {
+                    tracing::debug!("Cannot build an editor popup");
+                } else {
+                    tracing::debug!(%error, "Cannot build a popup");
+                }
+            }
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -266,7 +301,14 @@ impl Pages {
             | Location::Orchestrator { .. }
             | Location::Devices => None,
         };
-        let builder = with_handlers(wry::WebViewBuilder::new(), Source::Tab(id), &self.outbox)
+        let source = if tab.code_target().is_some() {
+            let generation = NEXT_CODE_SOURCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.code_sources.insert(id, generation);
+            Source::Code(id, generation)
+        } else {
+            Source::Tab(id)
+        };
+        let builder = with_handlers(wry::WebViewBuilder::new(), source, &self.outbox)
             .with_url(location.page_url())
             .with_asynchronous_custom_protocol(
                 PREVIEW_SCHEME.into(),
@@ -277,7 +319,7 @@ impl Pages {
             .with_ipc_handler(move |request| {
                 let body = request.into_body();
                 if body.len() <= MAX_POST_BYTES {
-                    report(&posted, Event::Posted(Source::Tab(id), body));
+                    report(&posted, Event::Posted(source, body));
                 }
             });
         #[cfg(target_os = "macos")]
@@ -350,7 +392,30 @@ impl Pages {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn code_keys(&mut self, keymap: crate::keymap::Keymap, cx: &App) {
+        use wry::WebViewExtMacOS as _;
+        for (id, source) in &self.code_sources {
+            if let Some(page) = self.pages.get(id) {
+                let view = page.read(cx).raw().webview();
+                let key = objc2::rc::Retained::as_ptr(&view) as usize;
+                super::page_keys::bind(
+                    key,
+                    &keymap,
+                    Source::Code(*id, *source),
+                    &self.outbox.sender,
+                );
+                self.code_keys.insert(*id, key);
+            }
+        }
+    }
+
     pub(crate) fn close(&mut self, id: TabId) {
+        self.code_sources.remove(&id);
+        #[cfg(target_os = "macos")]
+        if let Some(key) = self.code_keys.remove(&id) {
+            super::page_keys::unbind(key);
+        }
         #[cfg(target_os = "macos")]
         {
             self.adopted.retain(|_, tab| *tab != id);
@@ -383,7 +448,11 @@ impl Pages {
         if let Some(page) = self.pages.get(&id)
             && let Err(error) = page.read(cx).raw().evaluate_script(script)
         {
-            tracing::debug!(%error, "Browser script failed");
+            if self.code_sources.contains_key(&id) {
+                tracing::debug!("Editor script failed");
+            } else {
+                tracing::debug!(%error, "Browser script failed");
+            }
         }
     }
 
@@ -399,7 +468,11 @@ impl Pages {
         if let Some(page) = self.pages.get(&id)
             && let Err(error) = page.read(cx).raw().reload()
         {
-            tracing::debug!(%error, "Browser reload failed");
+            if self.code_sources.contains_key(&id) {
+                tracing::debug!("Editor reload failed");
+            } else {
+                tracing::debug!(%error, "Browser reload failed");
+            }
         }
     }
 
@@ -416,8 +489,12 @@ impl Pages {
         #[cfg(target_os = "macos")]
         if let Some(page) = self.pages.get(&id) {
             let sender = self.outbox.sender.clone();
+            let source = self
+                .code_sources
+                .get(&id)
+                .map_or(Source::Tab(id), |generation| Source::Code(id, *generation));
             super::snapshot::capture(page.read(cx).raw(), rect, move |tiff| {
-                report(&sender, Event::Captured(Source::Tab(id), capture, tiff));
+                report(&sender, Event::Captured(source, capture, tiff));
             });
             return true;
         }
@@ -432,6 +509,10 @@ impl Pages {
         #[cfg(target_os = "macos")]
         if let Some(page) = self.pages.get(&id) {
             let sender = self.outbox.sender.clone();
+            let source = self
+                .code_sources
+                .get(&id)
+                .map_or(Source::Tab(id), |generation| Source::Code(id, *generation));
             let rect = super::annotate::Rect {
                 x: 0.,
                 y: 0.,
@@ -439,7 +520,7 @@ impl Pages {
                 height: f64::from(f32::from(size.height)),
             };
             super::snapshot::capture(page.read(cx).raw(), rect, move |tiff| {
-                report(&sender, Event::Frozen(Source::Tab(id), tiff));
+                report(&sender, Event::Frozen(source, tiff));
             });
             return true;
         }
@@ -467,6 +548,9 @@ impl Pages {
         while let Ok(event) = self.events.try_recv() {
             let resolved = event.resolve(|source| match source {
                 Source::Tab(id) => Some(id),
+                Source::Code(id, generation) => (self.code_sources.get(&id) == Some(&generation)
+                    && self.pages.contains_key(&id))
+                .then_some(id),
                 #[cfg(target_os = "macos")]
                 Source::Popup(key) => self.adopted.get(&key).copied(),
             });
@@ -615,5 +699,14 @@ mod tests {
         );
         assert!(matches!(pages.next_event(), Some(Event::Loaded(id, _)) if id == tab));
         assert!(pages.next_event().is_none());
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Pages {
+    fn drop(&mut self) {
+        for key in self.code_keys.values() {
+            super::page_keys::unbind(*key);
+        }
     }
 }

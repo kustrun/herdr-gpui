@@ -41,6 +41,7 @@ impl HerdrWindow {
     }
 
     pub(crate) fn dismiss_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_code_picker();
         self.finish_font_size_edit(true, cx);
         if !self.cancel_theme_preview(cx) {
             return;
@@ -441,6 +442,7 @@ impl HerdrWindow {
                         | Page::Fonts
                         | Page::Palette
                         | Page::CodeSearch
+                        | Page::CodeMachine
                         | Page::Preferences
                         | Page::AppUpdate
                         | Page::GitHub
@@ -472,6 +474,7 @@ impl HerdrWindow {
                         | Page::Fonts
                         | Page::Palette
                         | Page::CodeSearch
+                        | Page::CodeMachine
                         | Page::Preferences
                 ),
                 |panel| {
@@ -631,6 +634,8 @@ impl HerdrWindow {
             panel = panel.child(self.render_font_picker(cx));
         } else if page == Page::Palette {
             panel = panel.child(self.render_palette(cx));
+        } else if page == Page::CodeMachine {
+            panel = panel.child(self.render_code_machines(cx));
         } else if page == Page::CodeSearch {
             panel = panel.child(self.render_code_search(cx));
         } else if page == Page::ConfirmClose {

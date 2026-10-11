@@ -60,6 +60,7 @@ pub enum Command {
     InstallBrowserSkill,
     SplitEditor,
     OpenCode,
+    OpenCodeOn,
     ToggleFullScreen,
     CycleWindows,
     MoveTabPrevious,
@@ -704,7 +705,13 @@ pub const COMMANDS: &[CommandInfo] = &[
         command: Command::OpenCode,
         name: "open_code",
         label: "Open VS Code",
-        shortcuts: &[],
+        shortcuts: &["cmd-alt-e"],
+    },
+    CommandInfo {
+        command: Command::OpenCodeOn,
+        name: "open_code_on",
+        label: "Open VS Code On",
+        shortcuts: &["cmd-alt-shift-e"],
     },
     CommandInfo {
         command: Command::ToggleFullScreen,
@@ -888,6 +895,7 @@ pub fn request(command: Command, snapshot: &ClientShellSnapshot) -> Option<(Meth
         | Command::InstallBrowserSkill
         | Command::SplitEditor
         | Command::OpenCode
+        | Command::OpenCodeOn
         | Command::ToggleFullScreen
         | Command::CycleWindows
         // These need state beyond the snapshot, such as the sidebar's order

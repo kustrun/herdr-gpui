@@ -61,7 +61,11 @@ pub(crate) struct Browser {
     /// retrying; bounded by the tabs the store keeps.
     pub(super) failed: HashMap<TabId, SharedString>,
     /// Whether the VS Code server answers, asked before its pages open.
-    pub(super) code_server: super::code::CodeServer,
+    pub(super) code_servers: HashMap<TabId, super::code::CodeServer>,
+    pub(super) code_addresses: HashMap<crate::code_server::Target, (WebUrl, Option<u64>)>,
+    pub(in crate::browser) code_picker: Option<super::code_launch::Picker>,
+    pub(super) code_probe: fn(&WebUrl) -> crate::Result<crate::code_server::Server>,
+    pub(super) code_started_probe: fn(&WebUrl) -> crate::Result<crate::code_server::Server>,
     /// The workspaces of the last snapshot and the boot they came from: one
     /// missing from the next snapshot of the same boot was closed.
     workspaces: Option<(Scope, String, HashSet<String>)>,
@@ -107,7 +111,11 @@ impl Browser {
             tab_scroll: Default::default(),
             group_motion: Default::default(),
             failed: HashMap::new(),
-            code_server: Default::default(),
+            code_servers: HashMap::new(),
+            code_addresses: HashMap::new(),
+            code_picker: None,
+            code_probe: crate::code_server::probe,
+            code_started_probe: crate::code_server::version,
             workspaces: None,
             #[cfg(any(target_os = "macos", windows))]
             annotations: Annotations::default(),
@@ -189,6 +197,7 @@ impl HerdrWindow {
         #[cfg(any(target_os = "macos", windows))]
         self.browser.pages.retain(|id| !gone(id));
         self.browser.failed.retain(|id, _| !gone(*id));
+        self.browser.code_servers.retain(|id, _| !gone(*id));
         #[cfg(any(target_os = "macos", windows))]
         let annotated: Vec<TabId> = self
             .browser
@@ -366,7 +375,32 @@ impl HerdrWindow {
     fn apply_page_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use super::native::Event;
         while let Some(event) = self.browser.pages.next_event() {
+            if !self.code_page_current(event.id(), cx) {
+                continue;
+            }
             match event {
+                #[cfg(target_os = "macos")]
+                Event::CodeCommand(id, command) => {
+                    let Some(group) = self.group_showing(&super::Pick::Page(id), cx) else {
+                        continue;
+                    };
+                    if store(cx)
+                        .and_then(|store| store.get(id))
+                        .and_then(super::Tab::code_target)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                    match command {
+                        crate::controls::Command::OpenCode => {
+                            self.open_code(Some(group), window, cx)
+                        }
+                        crate::controls::Command::OpenCodeOn => {
+                            self.open_code_on(Some(group), window, cx)
+                        }
+                        _ => {}
+                    }
+                }
                 Event::Title(id, title) => {
                     Store::update(cx, |store| store.visited(id, None, Some(&title)));
                 }
@@ -418,6 +452,11 @@ impl HerdrWindow {
         cx: &mut Context<Self>,
     ) -> Option<(Option<GroupId>, TabId)> {
         let parent = store(cx).and_then(|store| store.get(opener)).cloned()?;
+        let url = if parent.code_target().is_some() {
+            super::code::without_token(&url)
+        } else {
+            url
+        };
         let group = self.group_showing(&Pick::Page(opener), cx);
         let opened = Store::update(cx, |store| {
             store.open(

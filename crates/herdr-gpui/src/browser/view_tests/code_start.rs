@@ -29,8 +29,8 @@ fn found(cx: &mut gpui::TestAppContext) -> (Entity<HerdrWindow>, &mut VisualTest
     cx.update(|_, cx| {
         Launcher::fixture(cx, Cli::Found("/Applications/code-tunnel".into()));
         view.update(cx, |view, _| {
-            view.browser.code_server.probe = refuses_token;
-            view.browser.code_server.started_probe = answers;
+            view.browser.code_probe = refuses_token;
+            view.browser.code_started_probe = answers;
         });
     });
     draw(cx);
@@ -38,7 +38,16 @@ fn found(cx: &mut gpui::TestAppContext) -> (Entity<HerdrWindow>, &mut VisualTest
 }
 
 fn run(view: &Entity<HerdrWindow>, cx: &mut VisualTestContext, command: Command) {
-    cx.update(|window, cx| view.update(cx, |view, cx| view.command(command, window, cx)));
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            if command == Command::OpenCode {
+                let owner = super::super::code_launch::Owner::capture(view, None).unwrap();
+                view.open_code_for(owner, crate::code_server::Target::Configured, window, cx);
+            } else {
+                view.command(command, window, cx);
+            }
+        })
+    });
     draw(cx);
 }
 
@@ -139,10 +148,7 @@ fn a_started_server_opens_the_page_on_its_own_address(cx: &mut gpui::TestAppCont
     set_report(cx, Status::Starting, Some(51234));
     tick(&view, cx);
     let (tab, made) = page(&view, cx);
-    assert_eq!(
-        tab.location,
-        Some(url("http://127.0.0.1:51234/?tkn=secret"))
-    );
+    assert_eq!(tab.location, Some(url("http://127.0.0.1:51234/")));
     assert!(!made);
     assert!(cx.debug_bounds("code-placeholder").is_some());
 
@@ -179,7 +185,7 @@ fn an_address_keeps_the_server_the_user_runs(cx: &mut gpui::TestAppContext) {
     view.update(cx, |view, _| {
         view.config.code.url = Some(WebUrl::try_from("http://127.0.0.1:8000/?tkn=x").unwrap());
         // The user's own server is asked as before, token included.
-        view.browser.code_server.probe = answers;
+        view.browser.code_probe = answers;
     });
     run(&view, cx, Command::OpenCode);
     tick(&view, cx);
@@ -191,7 +197,7 @@ fn an_address_keeps_the_server_the_user_runs(cx: &mut gpui::TestAppContext) {
     });
     assert_eq!(
         opened.unwrap().location,
-        Some(url("http://127.0.0.1:8000/?tkn=x"))
+        Some(url("http://127.0.0.1:8000/"))
     );
 }
 

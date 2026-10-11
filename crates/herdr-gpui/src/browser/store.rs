@@ -118,6 +118,15 @@ fn read_target<'de, D: serde::Deserializer<'de>>(
         .transpose()
 }
 
+fn code_location(location: Location) -> Location {
+    match location {
+        Location::Web { url } => Location::Web {
+            url: super::code::without_token(&url),
+        },
+        other => other,
+    }
+}
+
 fn is_group(place: &Place) -> bool {
     *place == Place::Group
 }
@@ -183,6 +192,12 @@ fn parse(bytes: &[u8]) -> crate::Result<Vec<Tab>> {
     }
     if saved.tabs.len() > MAX_TABS || !saved.tabs.iter().all(Tab::valid) {
         return Err(crate::Error::InvalidBrowserTabs);
+    }
+    for tab in &mut saved.tabs {
+        if tab.code_target().is_some() {
+            tab.location = tab.location.take().map(code_location);
+            tab.title = "VS Code".into();
+        }
     }
     Ok(saved.tabs)
 }
@@ -282,6 +297,7 @@ impl Store {
     }
 
     /// The workspace's legacy configured-server tab, if it has one.
+    #[cfg(test)]
     pub(crate) fn code_tab(&self, scope: &Scope, workspace_id: &str) -> Option<&Tab> {
         self.code_tab_for(scope, workspace_id, &Target::Configured)
     }
@@ -319,6 +335,7 @@ impl Store {
     /// `None` while its server's address is not known, which the tab gets
     /// once it is. `None` when the app already holds the most tabs it keeps.
     /// Only builds that show pages open one.
+    #[cfg(test)]
     pub(crate) fn open_code_tab(
         &mut self,
         scope: Scope,
@@ -342,7 +359,13 @@ impl Store {
         if let Some(tab) = self.code_tab_for(&scope, workspace_id, &target) {
             return Some(tab.id);
         }
-        self.push(scope, workspace_id, location, None, Some(target))
+        self.push(
+            scope,
+            workspace_id,
+            location.map(code_location),
+            None,
+            Some(target),
+        )
     }
 
     fn push(
@@ -362,9 +385,13 @@ impl Store {
             id,
             scope,
             workspace_id: workspace_id.to_owned(),
-            title: location
-                .as_ref()
-                .map_or_else(|| "New Tab".to_owned(), Location::default_title),
+            title: if target.is_some() {
+                "VS Code".into()
+            } else {
+                location
+                    .as_ref()
+                    .map_or_else(|| "New Tab".to_owned(), Location::default_title)
+            },
             location,
             origin,
             place: if target.is_some() {
@@ -454,6 +481,12 @@ impl Store {
         let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
             return false;
         };
+        let location = if tab.code_target().is_some() {
+            location.map(code_location)
+        } else {
+            location
+        };
+        let title = title.filter(|_| tab.code_target().is_none());
         let mut changed = false;
         if let Some(location) = location
             && tab.location.as_ref() != Some(&location)
@@ -474,8 +507,6 @@ impl Store {
     }
 
     /// A delayed target report cannot navigate a different backing machine.
-    // Consumed by the following editor integration leaf.
-    #[allow(dead_code)]
     pub(crate) fn visited_code(
         &mut self,
         id: TabId,
@@ -502,6 +533,7 @@ impl Store {
     }
 
     /// Keeps legacy callers restricted to the configured-server tabs.
+    #[cfg(test)]
     pub(crate) fn follow_code_server(
         &mut self,
         server: &WebUrl,
@@ -527,7 +559,7 @@ impl Store {
             if let Some(Location::Web { url }) = &tab.location
                 && url.origin() != origin
             {
-                tab.location = Some(Location::Web { url: retarget(url) });
+                tab.location = Some(code_location(Location::Web { url: retarget(url) }));
                 changed = true;
             }
         }

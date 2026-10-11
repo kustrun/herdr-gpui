@@ -62,8 +62,6 @@ impl Target {
         }
     }
 
-    // Consumed by the following editor command integration leaf.
-    #[allow(dead_code)]
     pub(crate) fn owner(
         owner: &ConnectTarget,
         saved_id: Option<&str>,
@@ -84,7 +82,6 @@ impl Target {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn default_for(
         code: &CodeConfig,
         owner: &ConnectTarget,

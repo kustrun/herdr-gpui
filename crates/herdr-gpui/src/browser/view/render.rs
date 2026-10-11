@@ -1,7 +1,7 @@
 //! Drawing browser tabs: their entries in a group's strip, and the page with
 //! its toolbar where the terminal would be.
 
-use super::{store, tab_label};
+use super::store;
 use crate::{
     HerdrWindow,
     browser::{
@@ -74,8 +74,20 @@ impl HerdrWindow {
                     Some(Location::Devices) => "icons/devices.svg",
                     _ => "icons/globe.svg",
                 };
+                let tooltip = tab.code_target().map(|target| self.code_label(target));
+                let (foreground, surface) = (self.theme.foreground, self.theme.surface);
                 let tab = div()
                     .id(SharedString::from(format!("browser-tab-{id}")))
+                    .when_some(tooltip, |tab, label| {
+                        tab.tooltip(move |_, cx| {
+                            cx.new(|_| crate::usage::Hint {
+                                text: label.clone(),
+                                foreground,
+                                surface,
+                            })
+                            .into()
+                        })
+                    })
                     .debug_selector(move || slot.selector(&format!("browser-tab-{id}")))
                     .pl(px(10.))
                     .pr(px(3.))
@@ -98,7 +110,7 @@ impl HerdrWindow {
                             .flex_none()
                             .text_color(rgb(text)),
                     )
-                    .child(tab_label(&tab.title))
+                    .child(self.browser_tab_label(&tab))
                     .child(
                         div()
                             .id("close-browser-tab")
@@ -359,7 +371,7 @@ impl HerdrWindow {
         let content = match (page, &failure) {
             (Some(page), None) => self.page_area(id, page).into_any_element(),
             // The VS Code tab says why its page is not there yet.
-            _ if tab.place.is_code() => self.render_code_status(failure.clone(), cx),
+            _ if tab.place.is_code() => self.render_code_status(tab, failure.clone(), cx),
             _ => div()
                 .flex_1()
                 .min_h_0()

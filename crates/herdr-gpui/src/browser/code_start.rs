@@ -12,7 +12,11 @@ use gpui::{prelude::*, *};
 
 impl HerdrWindow {
     /// The terms, links to read them, and the button that accepts them.
-    pub(super) fn render_code_consent(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_code_consent(
+        &self,
+        label: SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = &self.theme;
         let link = |id: &'static str, label: &'static str, url: &'static str| {
             div()
@@ -53,7 +57,7 @@ impl HerdrWindow {
                     div()
                         .text_color(rgb(theme.foreground))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Start VS Code"),
+                        .child(format!("Start {label}")),
                 )
                 .child(div().text_color(rgb(theme.muted)).child(LICENSE_TERMS))
                 .child(

@@ -381,7 +381,7 @@ impl HerdrWindow {
             match event {
                 #[cfg(target_os = "macos")]
                 Event::CodeCommand(id, command) => {
-                    let Some(group) = self.group_showing(&super::Pick::Page(id), cx) else {
+                    let Some(group) = self.group_showing(&Pick::Page(id), cx) else {
                         continue;
                     };
                     if store(cx)

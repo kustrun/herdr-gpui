@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod process;
+pub(super) mod process;
 
 /// What to start.
 #[derive(Clone, Debug, PartialEq, Eq)]

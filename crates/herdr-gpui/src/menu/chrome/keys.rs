@@ -170,6 +170,10 @@ impl HerdrWindow {
             self.palette_key(event, window, cx);
             return;
         }
+        if self.menu.page == Some(Page::CodeMachine) {
+            self.code_machine_key(event, window, cx);
+            return;
+        }
         if self.menu.page == Some(Page::CodeSearch) {
             self.code_search_key(event, window, cx);
             return;

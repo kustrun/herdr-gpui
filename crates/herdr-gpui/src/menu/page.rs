@@ -33,6 +33,7 @@ pub(crate) enum Page {
     Palette,
     /// Go to Symbol and Go to File over the focused pane's checkout.
     CodeSearch,
+    CodeMachine,
     ConfirmClose,
     Update,
     AppUpdate,

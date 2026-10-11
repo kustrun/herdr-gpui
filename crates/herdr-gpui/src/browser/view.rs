@@ -61,7 +61,11 @@ pub(crate) struct Browser {
     /// retrying; bounded by the tabs the store keeps.
     pub(super) failed: HashMap<TabId, SharedString>,
     /// Whether the VS Code server answers, asked before its pages open.
-    pub(super) code_server: super::code::CodeServer,
+    pub(super) code_servers: HashMap<TabId, super::code::CodeServer>,
+    pub(super) code_addresses: HashMap<crate::code_server::Target, (WebUrl, Option<u64>)>,
+    pub(in crate::browser) code_picker: Option<super::code_launch::Picker>,
+    pub(super) code_probe: fn(&WebUrl) -> crate::Result<crate::code_server::Server>,
+    pub(super) code_started_probe: fn(&WebUrl) -> crate::Result<crate::code_server::Server>,
     /// The workspaces of the last snapshot and the boot they came from: one
     /// missing from the next snapshot of the same boot was closed.
     workspaces: Option<(Scope, String, HashSet<String>)>,
@@ -107,7 +111,11 @@ impl Browser {
             tab_scroll: Default::default(),
             group_motion: Default::default(),
             failed: HashMap::new(),
-            code_server: Default::default(),
+            code_servers: HashMap::new(),
+            code_addresses: HashMap::new(),
+            code_picker: None,
+            code_probe: crate::code_server::probe,
+            code_started_probe: crate::code_server::version,
             workspaces: None,
             #[cfg(any(target_os = "macos", windows))]
             annotations: Annotations::default(),
@@ -189,6 +197,7 @@ impl HerdrWindow {
         #[cfg(any(target_os = "macos", windows))]
         self.browser.pages.retain(|id| !gone(id));
         self.browser.failed.retain(|id, _| !gone(*id));
+        self.browser.code_servers.retain(|id, _| !gone(*id));
         #[cfg(any(target_os = "macos", windows))]
         let annotated: Vec<TabId> = self
             .browser
@@ -366,6 +375,9 @@ impl HerdrWindow {
     fn apply_page_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use super::native::Event;
         while let Some(event) = self.browser.pages.next_event() {
+            if !self.code_page_current(event.id(), cx) {
+                continue;
+            }
             match event {
                 Event::Title(id, title) => {
                     Store::update(cx, |store| store.visited(id, None, Some(&title)));

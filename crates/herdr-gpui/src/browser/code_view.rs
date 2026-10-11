@@ -3,7 +3,7 @@
 use super::code::Reach;
 use crate::{
     HerdrWindow,
-    code_server::{Launcher, Startup},
+    code_server::{Launcher, Startup, Target, launcher::Phase},
 };
 use gpui::{prelude::*, *};
 
@@ -12,14 +12,22 @@ impl HerdrWindow {
     /// could not be created.
     pub(super) fn render_code_status(
         &self,
+        tab: &super::Tab,
         failure: Option<SharedString>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let startup = Launcher::startup(cx, &self.config.code);
+        let Some(target) = tab.code_target() else {
+            return div().into_any_element();
+        };
+        let label = self.code_label(target);
+        if target.resolve(&self.code_hosts()).is_err() {
+            return self.render_code_unreachable(target, "This saved machine was removed, disabled, or changed. Choose its current entry with Open VS Code On.".into(), cx);
+        }
+        let startup = Launcher::startup_target(cx, &self.config.code, target);
         let text: SharedString = if !super::EMBEDDED {
             "This build cannot show pages in the window.".into()
         } else if let Some(message) = failure {
-            format!("Could not show this page: {message}").into()
+            return self.render_code_unreachable(target, message, cx);
         } else {
             match startup {
                 Startup::Address if self.config.code.url.is_none() => {
@@ -29,21 +37,30 @@ impl HerdrWindow {
                 Startup::Missing => "VS Code is not installed. Install it, or set the address \
                                      of a server you run in Settings."
                     .into(),
-                Startup::Consent => return self.render_code_consent(cx),
-                Startup::Idle | Startup::Starting { .. } => {
-                    "Starting VS Code\u{2026} (the first run downloads it)".into()
-                }
+                Startup::Consent => return self.render_code_consent(label.clone(), cx),
+                Startup::Idle | Startup::Starting { .. } => match Launcher::phase(cx, target) {
+                    Some(Phase::Preparing) => "Preparing VS Code…".into(),
+                    Some(Phase::Installing) => "Installing VS Code…".into(),
+                    Some(Phase::Starting) | None => "Starting VS Code…".into(),
+                },
                 Startup::Failed { error, .. } => {
-                    return self.render_code_unreachable(error.to_string().into());
+                    return self.render_code_unreachable(target, error.to_string().into(), cx);
                 }
-                Startup::Address | Startup::Ready { .. } => match &self.browser.code_server.state {
-                    Reach::Failed { message, .. } => {
-                        return self.render_code_unreachable(message.clone());
+                Startup::Address | Startup::Ready { .. } => match self
+                    .browser
+                    .code_servers
+                    .get(&tab.id)
+                    .map(|server| &server.state)
+                {
+                    Some(Reach::Failed { message, .. }) => {
+                        return self.render_code_unreachable(target, message.clone(), cx);
                     }
-                    Reach::Ready { server, .. } => {
+                    Some(Reach::Ready { server, .. }) => {
                         format!("Loading VS Code {}\u{2026}", server.short_commit()).into()
                     }
-                    Reach::Unknown | Reach::Asking => "Connecting to VS Code\u{2026}".into(),
+                    Some(Reach::Unknown | Reach::Asking) | None => {
+                        "Connecting to VS Code\u{2026}".into()
+                    }
                 },
             }
         };
@@ -51,12 +68,24 @@ impl HerdrWindow {
             div()
                 .debug_selector(|| "code-placeholder".into())
                 .text_color(rgb(self.theme.muted))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(8.))
+                .child(label)
                 .child(text),
         )
     }
 
     /// Why the server did not answer, and that it is asked again.
-    fn render_code_unreachable(&self, message: SharedString) -> AnyElement {
+    fn render_code_unreachable(
+        &self,
+        target: &Target,
+        message: SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let label = self.code_label(target);
+        let target = target.clone();
         let theme = &self.theme;
         centered(
             div()
@@ -76,14 +105,21 @@ impl HerdrWindow {
                     div()
                         .text_color(rgb(theme.foreground))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Cannot reach the VS Code server"),
+                        .child(format!("Cannot reach {label}")),
                 )
                 .child(div().text_color(rgb(theme.muted)).child(message))
                 .child(
                     div()
-                        .text_color(rgb(theme.muted))
-                        .text_sm()
-                        .child("Retrying\u{2026}"),
+                        .id("code-retry")
+                        .debug_selector(|| "code-retry".into())
+                        .text_color(rgb(theme.foreground))
+                        .cursor_pointer()
+                        .px(px(14.))
+                        .py(px(8.))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.retry_code_target(&target, cx)),
+                        )
+                        .child("Retry"),
                 ),
         )
     }
@@ -92,7 +128,9 @@ impl HerdrWindow {
     /// VS Code: once a server is set, or the app starts VS Code, in a build
     /// that can show pages.
     pub(crate) fn code_offered(&self, cx: &App) -> bool {
-        super::EMBEDDED && Launcher::startup(cx, &self.config.code).offered(&self.config.code)
+        super::EMBEDDED
+            && (cfg!(target_os = "macos")
+                || Launcher::startup(cx, &self.config.code).offered(&self.config.code))
     }
 }
 

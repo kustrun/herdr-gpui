@@ -139,10 +139,7 @@ fn a_started_server_opens_the_page_on_its_own_address(cx: &mut gpui::TestAppCont
     set_report(cx, Status::Starting, Some(51234));
     tick(&view, cx);
     let (tab, made) = page(&view, cx);
-    assert_eq!(
-        tab.location,
-        Some(url("http://127.0.0.1:51234/?tkn=secret"))
-    );
+    assert_eq!(tab.location, Some(url("http://127.0.0.1:51234/")));
     assert!(!made);
     assert!(cx.debug_bounds("code-placeholder").is_some());
 
@@ -191,7 +188,7 @@ fn an_address_keeps_the_server_the_user_runs(cx: &mut gpui::TestAppContext) {
     });
     assert_eq!(
         opened.unwrap().location,
-        Some(url("http://127.0.0.1:8000/?tkn=x"))
+        Some(url("http://127.0.0.1:8000/"))
     );
 }
 

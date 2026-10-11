@@ -1,13 +1,14 @@
 //! One window's native web views, one per browser tab it has shown. A view
 //! is a platform child view layered above the GPUI surface: one per side of a
 //! split is visible, and the window hides them while an overlay is open.
+use super::native_report::report;
 use super::{Location, Tab, TabId, WebUrl, location::PREVIEW_SCHEME, preview::Preview};
 use gpui::{App, AppContext as _, Entity, Window};
 use gpui_wry::WebView;
 use std::{
     collections::HashMap,
     rc::Rc,
-    sync::mpsc::{self, Receiver, SyncSender, TrySendError},
+    sync::mpsc::{self, Receiver, SyncSender},
 };
 #[cfg(target_os = "macos")]
 use std::{
@@ -19,6 +20,7 @@ use wry::raw_window_handle::HasWindowHandle;
 /// Enough for a burst of title and load reports between two window ticks;
 /// later ones are dropped rather than queued without bound.
 const EVENT_CAPACITY: usize = 64;
+static NEXT_CODE_SOURCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// What a page reported, from the tab `P` names. Handlers run on the
 /// platform's callbacks, so they only queue these for the window to apply on
@@ -55,6 +57,7 @@ pub(crate) enum Event<P = TabId> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Source {
     Tab(TabId),
+    Code(TabId, u64),
     #[cfg(target_os = "macos")]
     Popup(u64),
 }
@@ -90,6 +93,7 @@ const MAX_POST_BYTES: usize = 64 * 1024;
 pub(crate) struct Pages {
     pages: HashMap<TabId, Entity<WebView>>,
     shown: Vec<TabId>,
+    code_sources: HashMap<TabId, u64>,
     outbox: Outbox,
     events: Receiver<Event<Source>>,
     /// The tab each adopted popup became.
@@ -108,6 +112,7 @@ impl Default for Pages {
         Self {
             pages: HashMap::new(),
             shown: Vec::new(),
+            code_sources: HashMap::new(),
             outbox: Outbox {
                 sender,
                 #[cfg(target_os = "macos")]
@@ -132,12 +137,6 @@ struct Outbox {
     /// at most one entry per popup.
     #[cfg(target_os = "macos")]
     closed: Arc<Mutex<HashSet<u64>>>,
-}
-
-fn report(sender: &SyncSender<Event<Source>>, event: Event<Source>) {
-    if let Err(TrySendError::Full(event)) = sender.try_send(event) {
-        tracing::debug!(?event, "Dropped a browser event");
-    }
 }
 
 /// The handlers every page has, its own or a popup's, reporting as `source`.
@@ -201,7 +200,13 @@ fn new_window(
                     Err(_) => wry::NewWindowResponse::Deny,
                 };
             }
-            Err(error) => tracing::debug!(%error, "Cannot build a popup"),
+            Err(error) => {
+                if matches!(opener, Source::Code(..)) {
+                    tracing::debug!("Cannot build an editor popup");
+                } else {
+                    tracing::debug!(%error, "Cannot build a popup");
+                }
+            }
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -271,7 +276,14 @@ impl Pages {
             | Location::Orchestrator { .. }
             | Location::Devices => None,
         };
-        let builder = with_handlers(wry::WebViewBuilder::new(), Source::Tab(id), &self.outbox)
+        let source = if tab.code_target().is_some() {
+            let generation = NEXT_CODE_SOURCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.code_sources.insert(id, generation);
+            Source::Code(id, generation)
+        } else {
+            Source::Tab(id)
+        };
+        let builder = with_handlers(wry::WebViewBuilder::new(), source, &self.outbox)
             .with_url(location.page_url())
             .with_asynchronous_custom_protocol(
                 PREVIEW_SCHEME.into(),
@@ -282,9 +294,17 @@ impl Pages {
             .with_ipc_handler(move |request| {
                 let body = request.into_body();
                 if body.len() <= MAX_POST_BYTES {
-                    report(&posted, Event::Posted(Source::Tab(id), body));
+                    report(&posted, Event::Posted(source, body));
                 }
             });
+        #[cfg(target_os = "macos")]
+        let builder = {
+            use wry::WebViewBuilderExtDarwin as _;
+            match super::native_profile::identifier(tab) {
+                Some(identifier) => builder.with_data_store_identifier(identifier),
+                None => builder,
+            }
+        };
         // Window has an inherent `window_handle` of its own.
         let handle = HasWindowHandle::window_handle(window)?;
         let view = builder.build_as_child(&handle)?;
@@ -348,6 +368,7 @@ impl Pages {
     }
 
     pub(crate) fn close(&mut self, id: TabId) {
+        self.code_sources.remove(&id);
         #[cfg(target_os = "macos")]
         {
             self.adopted.retain(|_, tab| *tab != id);
@@ -380,7 +401,11 @@ impl Pages {
         if let Some(page) = self.pages.get(&id)
             && let Err(error) = page.read(cx).raw().evaluate_script(script)
         {
-            tracing::debug!(%error, "Browser script failed");
+            if self.code_sources.contains_key(&id) {
+                tracing::debug!("Editor script failed");
+            } else {
+                tracing::debug!(%error, "Browser script failed");
+            }
         }
     }
 
@@ -396,7 +421,11 @@ impl Pages {
         if let Some(page) = self.pages.get(&id)
             && let Err(error) = page.read(cx).raw().reload()
         {
-            tracing::debug!(%error, "Browser reload failed");
+            if self.code_sources.contains_key(&id) {
+                tracing::debug!("Editor reload failed");
+            } else {
+                tracing::debug!(%error, "Browser reload failed");
+            }
         }
     }
 
@@ -413,8 +442,12 @@ impl Pages {
         #[cfg(target_os = "macos")]
         if let Some(page) = self.pages.get(&id) {
             let sender = self.outbox.sender.clone();
+            let source = self
+                .code_sources
+                .get(&id)
+                .map_or(Source::Tab(id), |generation| Source::Code(id, *generation));
             super::snapshot::capture(page.read(cx).raw(), rect, move |tiff| {
-                report(&sender, Event::Captured(Source::Tab(id), capture, tiff));
+                report(&sender, Event::Captured(source, capture, tiff));
             });
             return true;
         }
@@ -429,6 +462,10 @@ impl Pages {
         #[cfg(target_os = "macos")]
         if let Some(page) = self.pages.get(&id) {
             let sender = self.outbox.sender.clone();
+            let source = self
+                .code_sources
+                .get(&id)
+                .map_or(Source::Tab(id), |generation| Source::Code(id, *generation));
             let rect = super::annotate::Rect {
                 x: 0.,
                 y: 0.,
@@ -436,7 +473,7 @@ impl Pages {
                 height: f64::from(f32::from(size.height)),
             };
             super::snapshot::capture(page.read(cx).raw(), rect, move |tiff| {
-                report(&sender, Event::Frozen(Source::Tab(id), tiff));
+                report(&sender, Event::Frozen(source, tiff));
             });
             return true;
         }
@@ -464,6 +501,9 @@ impl Pages {
         while let Ok(event) = self.events.try_recv() {
             let resolved = event.resolve(|source| match source {
                 Source::Tab(id) => Some(id),
+                Source::Code(id, generation) => (self.code_sources.get(&id) == Some(&generation)
+                    && self.pages.contains_key(&id))
+                .then_some(id),
                 #[cfg(target_os = "macos")]
                 Source::Popup(key) => self.adopted.get(&key).copied(),
             });

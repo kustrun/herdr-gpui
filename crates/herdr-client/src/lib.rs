@@ -67,8 +67,8 @@ pub use sessions::{
 pub use ssh::script_command;
 pub use ssh::{Bridge, connect_command};
 pub use ssh::{
-    Destination, FORWARD_READY, HostProbe, SshFailure, forward_command, probe_host,
-    remote_config_value, remote_origin_url, resolve_destination,
+    Destination, FORWARD_READY, HostProbe, SshFailure, controlled_forward_command, forward_command,
+    probe_host, remote_config_value, remote_origin_url, resolve_destination,
 };
 pub use surface_images::{
     MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, MAX_IMAGES, MAX_PLACEMENTS, SurfaceImage, SurfaceImages,

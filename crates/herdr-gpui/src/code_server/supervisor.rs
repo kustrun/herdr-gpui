@@ -562,7 +562,7 @@ where
 }
 
 /// A loopback port the system considers free right now.
-fn free_port() -> Result<NonZeroU16, Error> {
+pub(super) fn free_port() -> Result<NonZeroU16, Error> {
     let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .and_then(|listener| listener.local_addr())
         .map(|address| address.port())

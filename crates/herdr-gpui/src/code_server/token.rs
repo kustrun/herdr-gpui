@@ -72,6 +72,15 @@ impl Token {
         }
     }
 
+    /// New per-machine state rejects links and shared files before any read or chmod.
+    #[cfg(unix)]
+    pub(super) fn load_private(path: &Path) -> Result<Self> {
+        super::private::directory(path.parent().ok_or(Error::NoDataDir)?)?;
+        super::private::file(path, 0o600)?;
+        super::private::file(&path.with_extension("lock"), 0o600)?;
+        Self::load_or_create(path)
+    }
+
     fn random() -> Result<Self> {
         let mut bytes = [0; BYTES];
         getrandom::fill(&mut bytes).map_err(Error::TokenRandom)?;

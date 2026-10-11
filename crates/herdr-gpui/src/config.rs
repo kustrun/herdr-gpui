@@ -8,6 +8,8 @@ use crate::{
     keymap::{Binding, DaemonKeys, Keymap, PaneKeys},
 };
 mod bitmap_fonts;
+#[cfg(unix)]
+mod code_origin;
 mod coder;
 mod daytona;
 mod files;

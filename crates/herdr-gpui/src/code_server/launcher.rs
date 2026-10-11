@@ -1,8 +1,6 @@
-//! The VS Code server the app starts, one for the whole app: VS Code's
-//! command line is found once at launch, `code serve-web` starts the first
-//! time a VS Code tab needs a page, and it stops when the
-//! app quits. Windows and the settings page read [`Startup`], which says
-//! where the VS Code tabs' server is or why it is not there yet.
+//! App-wide VS Code demand and reports. macOS keeps an owned worker per machine;
+//! configured callers retain the existing startup API. Windows and settings read
+//! `Startup`, while managed editor tabs can also read their current `Phase`.
 //!
 //! Builds that cannot show pages (Linux) find and start nothing.
 use super::{
@@ -45,6 +43,15 @@ pub(crate) enum Cli {
     /// The program that runs `serve-web`.
     Found(PathBuf),
     Missing,
+}
+
+/// The active work for one managed machine; read alongside its `Startup`.
+#[cfg_attr(not(unix), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Phase {
+    Preparing,
+    Installing,
+    Starting,
 }
 
 /// Where the VS Code tabs' server is, or why there is none yet.
@@ -102,10 +109,19 @@ impl Startup {
     }
 }
 
-/// The mode in effect: the saved one, else `address` for a config that has
-/// an address, as before there was a choice, else `start` once VS Code is
-/// found. `None` while that is not known yet.
+/// macOS automatic mode follows configuration even before CLI discovery. Other
+/// clients retain discovery-based behavior for their configured server.
 pub(crate) fn mode(code: &CodeConfig, cli: &Cli) -> Option<CodeMode> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = cli;
+        return Some(if super::managed::starts(code) {
+            CodeMode::Start
+        } else {
+            CodeMode::Address
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
     code.mode.or(match (&code.url, cli) {
         (Some(_), _) | (None, Cli::Missing) => Some(CodeMode::Address),
         (None, Cli::Found(_)) => Some(CodeMode::Start),
@@ -173,6 +189,12 @@ pub(crate) struct Launcher {
     /// The worker's last report, read on a timer so rendering never waits.
     report: Option<Report>,
     quitting: bool,
+    #[cfg(test)]
+    fixture: bool,
+    #[cfg(unix)]
+    managed: super::managed::Manager,
+    #[cfg(unix)]
+    managed_revision: u64,
     /// Starts the worker; tests start nothing.
     start: fn(Plan) -> crate::Result<Supervisor>,
     /// Where the token is kept; tests never touch the user's state folder.
@@ -186,6 +208,12 @@ impl Default for Launcher {
             server: None,
             report: None,
             quitting: false,
+            #[cfg(test)]
+            fixture: false,
+            #[cfg(unix)]
+            managed: Default::default(),
+            #[cfg(unix)]
+            managed_revision: 0,
             start: Supervisor::start,
             token_file: token::path,
         }
@@ -195,6 +223,13 @@ impl Default for Launcher {
 impl Global for Launcher {}
 
 impl Launcher {
+    fn uses_managed(&self) -> bool {
+        #[cfg(test)]
+        if self.fixture {
+            return false;
+        }
+        cfg!(target_os = "macos")
+    }
     /// Installs the app's launcher and starts looking for VS Code. Native
     /// test modes never install it, so their windows use addresses alone.
     pub(crate) fn install(cx: &mut App) {
@@ -203,9 +238,17 @@ impl Launcher {
             let launcher = cx.global_mut::<Self>();
             launcher.quitting = true;
             let server = launcher.server.take();
+            #[cfg(unix)]
+            let managed = std::mem::take(&mut launcher.managed);
             cx.background_executor().spawn(async move {
+                let deadline = Instant::now() + QUIT_BUDGET;
+                if let Some(server) = &server {
+                    server.stop();
+                }
+                #[cfg(unix)]
+                managed.quit(deadline.saturating_duration_since(Instant::now()));
                 if let Some(server) = server {
-                    server.shutdown(QUIT_BUDGET);
+                    server.shutdown(deadline.saturating_duration_since(Instant::now()));
                 }
             })
         })
@@ -247,7 +290,17 @@ impl Launcher {
 
     /// Takes the worker's latest report. Returns whether it changed.
     fn poll(&mut self) -> bool {
+        #[cfg(unix)]
+        let managed_changed = {
+            let revision = self.managed.revision();
+            let changed = revision != self.managed_revision;
+            self.managed_revision = revision;
+            changed
+        };
         let Some(report) = self.server.as_ref().map(Supervisor::report) else {
+            #[cfg(unix)]
+            return managed_changed;
+            #[cfg(windows)]
             return false;
         };
         let changed = self
@@ -255,13 +308,19 @@ impl Launcher {
             .as_ref()
             .is_none_or(|known| known.revision != report.revision);
         self.report = Some(report);
-        changed
+        #[cfg(unix)]
+        return changed || managed_changed;
+        #[cfg(windows)]
+        return changed;
     }
 
     /// Whether the server the app started runs right now. A window asks
     /// just before it loads a page, which carries the token: a server that
     /// stopped leaves its port to whoever takes it next.
     pub(crate) fn alive(cx: &App) -> bool {
+        if cx.try_global::<Self>().is_some_and(Self::uses_managed) {
+            return Self::alive_target(cx, &super::Target::Configured);
+        }
         cx.try_global::<Self>()
             .and_then(|launcher| launcher.server.as_ref())
             .is_some_and(Supervisor::alive)
@@ -276,6 +335,9 @@ impl Launcher {
     /// Where the VS Code tabs' server is for `code`. Without a launcher, as in
     /// native test modes, VS Code counts as not installed.
     pub(crate) fn startup(cx: &App, code: &CodeConfig) -> Startup {
+        if cx.try_global::<Self>().is_some_and(Self::uses_managed) {
+            return Self::startup_target(cx, code, &super::Target::Configured);
+        }
         match cx.try_global::<Self>() {
             Some(launcher) => startup(
                 EMBEDDED,
@@ -292,6 +354,15 @@ impl Launcher {
     /// first needs it. A changed command line or port starts it anew.
     /// Returns at once: the worker does the rest.
     pub(crate) fn want(cx: &mut App, code: &CodeConfig) {
+        if cx.try_global::<Self>().is_some_and(Self::uses_managed) {
+            #[cfg(unix)]
+            if let Err(error) = Self::want_target(cx, code, &super::Target::Configured, &[]) {
+                cx.global_mut::<Self>()
+                    .managed
+                    .fail(&super::Target::Configured, error);
+            }
+            return;
+        }
         let Some(launcher) = cx.try_global::<Self>() else {
             return;
         };
@@ -334,6 +405,11 @@ impl Launcher {
     /// other than starting it, chosen in Settings or written in the config
     /// file, or a license no longer accepted. Returns at once.
     pub(crate) fn sync(cx: &mut App, code: &CodeConfig) {
+        if cx.try_global::<Self>().is_some_and(Self::uses_managed) {
+            #[cfg(unix)]
+            cx.global_mut::<Self>().managed.sync(code);
+            return;
+        }
         let Some(launcher) = cx.try_global::<Self>() else {
             return;
         };
@@ -346,6 +422,11 @@ impl Launcher {
 
     /// Stops VS Code. Returns at once; the worker stops the child.
     pub(crate) fn stop(cx: &mut App) {
+        if cx.try_global::<Self>().is_some_and(Self::uses_managed) {
+            #[cfg(unix)]
+            cx.global_mut::<Self>().managed.stop_configured();
+            return;
+        }
         if cx.has_global::<Self>() {
             let launcher = cx.global_mut::<Self>();
             launcher.server = None;
@@ -353,6 +434,116 @@ impl Launcher {
         }
     }
 
+    // These narrow APIs are consumed by the next editor integration leaves.
+    #[allow(dead_code)]
+    pub(crate) fn startup_target(cx: &App, code: &CodeConfig, target: &super::Target) -> Startup {
+        if target == &super::Target::Configured
+            && !cx.try_global::<Self>().is_some_and(Self::uses_managed)
+        {
+            return Self::startup(cx, code);
+        }
+        if !cfg!(target_os = "macos") {
+            return Startup::Failed {
+                error: Arc::new(super::Error::UnsupportedTarget.into()),
+                url: None,
+            };
+        }
+        #[cfg(unix)]
+        if let Some(launcher) = cx.try_global::<Self>() {
+            return launcher.managed.startup(target, code);
+        }
+        if target == &super::Target::Configured
+            && mode(code, &Cli::Missing) == Some(CodeMode::Address)
+        {
+            Startup::Address
+        } else if !code.license_accepted {
+            Startup::Consent
+        } else {
+            Startup::Idle
+        }
+    }
+
+    // The following editor leaf also calls this compatibility API on Windows.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn want_target(
+        cx: &mut App,
+        code: &CodeConfig,
+        target: &super::Target,
+        hosts: &[herdr_client::SavedHost],
+    ) -> crate::Result<()> {
+        if target == &super::Target::Configured
+            && !cx.try_global::<Self>().is_some_and(Self::uses_managed)
+        {
+            Self::want(cx, code);
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        if cx.has_global::<Self>() && !cx.global::<Self>().quitting {
+            cx.global_mut::<Self>().managed.want(target, code, hosts)?;
+            return Ok(());
+        }
+        let _ = (cx, code, target, hosts);
+        Err(super::Error::UnsupportedTarget.into())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn alive_target(cx: &App, target: &super::Target) -> bool {
+        if target == &super::Target::Configured
+            && !cx.try_global::<Self>().is_some_and(Self::uses_managed)
+        {
+            return Self::alive(cx);
+        }
+        #[cfg(unix)]
+        if let Some(launcher) = cx.try_global::<Self>() {
+            return launcher.managed.alive(target);
+        }
+        let _ = (cx, target);
+        false
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn phase(cx: &App, target: &super::Target) -> Option<Phase> {
+        #[cfg(unix)]
+        if let Some(launcher) = cx.try_global::<Self>() {
+            return launcher.managed.phase(target);
+        }
+        let _ = (cx, target);
+        None
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn generation(cx: &App, target: &super::Target) -> Option<u64> {
+        #[cfg(unix)]
+        if let Some(launcher) = cx.try_global::<Self>() {
+            return launcher.managed.generation(target);
+        }
+        let _ = (cx, target);
+        None
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn sync_targets(cx: &mut App, hosts: &[herdr_client::SavedHost]) {
+        #[cfg(unix)]
+        if cx.has_global::<Self>() {
+            cx.global_mut::<Self>().managed.sync_hosts(hosts);
+        }
+        let _ = (cx, hosts);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn retry_target(cx: &mut App, target: &super::Target) {
+        if target == &super::Target::Configured
+            && !cx.try_global::<Self>().is_some_and(Self::uses_managed)
+        {
+            Self::stop(cx);
+            return;
+        }
+        #[cfg(unix)]
+        if cx.has_global::<Self>() {
+            cx.global_mut::<Self>().managed.retry(target);
+        }
+        let _ = (cx, target);
+    }
     /// Whether the running server is the one `plan` asks for. A plan without
     /// a port takes any; one with a port takes the server on it, such as the
     /// one that picked and saved it.
@@ -392,6 +583,7 @@ impl Launcher {
     pub(crate) fn fixture(cx: &mut App, cli: Cli) {
         cx.set_global(Self {
             cli,
+            fixture: true,
             start: Supervisor::idle,
             token_file: || Ok(PathBuf::from("vscode-token")),
             ..Self::default()

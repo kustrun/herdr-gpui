@@ -105,3 +105,6 @@ fn instances_making_the_token_together_share_one() {
         assert!(tokens.iter().all(|token| *token == kept), "{before:?}");
     }
 }
+
+#[cfg(unix)]
+mod private_target;

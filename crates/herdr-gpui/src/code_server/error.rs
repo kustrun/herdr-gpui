@@ -6,10 +6,14 @@ use std::{io, path::PathBuf, process::ExitStatus, time::Duration};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("This editor machine was removed, disabled or changed. Choose it again.")]
+    TargetUnavailable,
     #[error("This machine cannot run a managed VS Code editor.")]
     UnsupportedTarget,
     #[error("Invalid editor machine connection.")]
     Target(#[source] herdr_client::Error),
+    #[error("Too many editor machines are open (maximum 256).")]
+    TargetLimit,
     #[error("VS Code installation was cancelled.")]
     Cancelled,
     #[error("Could not read official VS Code release metadata.")]
@@ -104,3 +108,30 @@ pub enum Error {
 }
 
 pub(super) type Result<T> = std::result::Result<T, Error>;
+
+impl Error {
+    pub(super) fn permanent(&self) -> bool {
+        match self {
+            Self::TargetUnavailable
+            | Self::UnsupportedTarget
+            | Self::TargetLimit
+            | Self::Metadata
+            | Self::Digest
+            | Self::Archive
+            | Self::UnsafeCache
+            | Self::Capability
+            | Self::RemoteTools
+            | Self::RemoteOwnership
+            | Self::RemoteInstall
+            | Self::OriginTaken { .. }
+            | Self::PortTaken { .. }
+            | Self::Target(_) => true,
+            Self::Ssh(failure) => failure.needs_user(),
+            Self::Spawn { source, .. } | Self::Cache(source) => matches!(
+                source.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+            ),
+            _ => false,
+        }
+    }
+}

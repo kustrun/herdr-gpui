@@ -1,3 +1,4 @@
+mod code_shortcuts;
 mod plugin_shortcuts;
 
 #[gpui::test]

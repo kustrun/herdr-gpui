@@ -27,6 +27,8 @@ static NEXT_CODE_SOURCE: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 /// its next tick.
 #[derive(Debug)]
 pub(crate) enum Event<P = TabId> {
+    #[cfg(target_os = "macos")]
+    CodeCommand(P, crate::controls::Command),
     Title(P, String),
     Loaded(P, String),
     /// The page asked for a new window, which becomes a new, unrelated tab.
@@ -71,6 +73,8 @@ impl Event<Source> {
     /// for a popup no tab adopted.
     fn resolve(self, tab: impl Fn(Source) -> Option<TabId>) -> Option<Event> {
         Some(match self {
+            #[cfg(target_os = "macos")]
+            Self::CodeCommand(source, command) => Event::CodeCommand(tab(source)?, command),
             Self::Title(source, title) => Event::Title(tab(source)?, title),
             Self::Loaded(source, url) => Event::Loaded(tab(source)?, url),
             Self::NewWindow(source, url) => Event::NewWindow(tab(source)?, url),
@@ -95,7 +99,8 @@ impl Event {
             | Self::NewWindow(id, _)
             | Self::Posted(id, _) => *id,
             #[cfg(target_os = "macos")]
-            Self::Opened(id, ..)
+            Self::CodeCommand(id, _)
+            | Self::Opened(id, ..)
             | Self::Closed(id)
             | Self::Captured(id, ..)
             | Self::Frozen(id, _) => *id,
@@ -110,6 +115,8 @@ pub(crate) struct Pages {
     pages: HashMap<TabId, Entity<WebView>>,
     shown: Vec<TabId>,
     code_sources: HashMap<TabId, u64>,
+    #[cfg(target_os = "macos")]
+    code_keys: HashMap<TabId, usize>,
     outbox: Outbox,
     events: Receiver<Event<Source>>,
     /// The tab each adopted popup became.
@@ -129,6 +136,8 @@ impl Default for Pages {
             pages: HashMap::new(),
             shown: Vec::new(),
             code_sources: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            code_keys: HashMap::new(),
             outbox: Outbox {
                 sender,
                 #[cfg(target_os = "macos")]
@@ -383,8 +392,30 @@ impl Pages {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn code_keys(&mut self, keymap: crate::keymap::Keymap, cx: &App) {
+        use wry::WebViewExtMacOS as _;
+        for (id, source) in &self.code_sources {
+            if let Some(page) = self.pages.get(id) {
+                let view = page.read(cx).raw().webview();
+                let key = objc2::rc::Retained::as_ptr(&view) as usize;
+                super::page_keys::bind(
+                    key,
+                    &keymap,
+                    Source::Code(*id, *source),
+                    &self.outbox.sender,
+                );
+                self.code_keys.insert(*id, key);
+            }
+        }
+    }
+
     pub(crate) fn close(&mut self, id: TabId) {
         self.code_sources.remove(&id);
+        #[cfg(target_os = "macos")]
+        if let Some(key) = self.code_keys.remove(&id) {
+            super::page_keys::unbind(key);
+        }
         #[cfg(target_os = "macos")]
         {
             self.adopted.retain(|_, tab| *tab != id);
@@ -668,5 +699,14 @@ mod tests {
         );
         assert!(matches!(pages.next_event(), Some(Event::Loaded(id, _)) if id == tab));
         assert!(pages.next_event().is_none());
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Pages {
+    fn drop(&mut self) {
+        for key in self.code_keys.values() {
+            super::page_keys::unbind(*key);
+        }
     }
 }

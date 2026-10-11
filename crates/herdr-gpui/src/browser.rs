@@ -29,6 +29,9 @@ mod native_profile;
 mod native_report;
 #[cfg(target_os = "macos")]
 mod page_keys;
+#[cfg(any(target_os = "macos", test))]
+#[path = "browser/page_keys/keystroke.rs"]
+mod page_keystroke;
 #[cfg(target_os = "macos")]
 mod popup;
 #[cfg(any(target_os = "macos", windows))]

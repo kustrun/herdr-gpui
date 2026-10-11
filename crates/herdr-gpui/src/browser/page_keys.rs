@@ -24,21 +24,90 @@
 //! equivalents.
 #![allow(unsafe_code)]
 
+use super::native::{Event, Source};
+use crate::{controls::Command, keymap::Keymap};
 use block2::RcBlock;
+
 use objc2::{
     ClassType, MainThreadMarker, rc::Retained, runtime::AnyObject, runtime::NSObjectProtocol, sel,
 };
 use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags, NSEventType};
 use objc2_web_kit::WKWebView;
 use std::{
-    cell::OnceCell,
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
     ptr::{NonNull, null_mut},
+    sync::mpsc::SyncSender,
 };
 
 thread_local! {
     /// The monitor, installed with the first page and kept for the life of
     /// the app.
+    static BINDINGS: RefCell<HashMap<usize, Binding>> = RefCell::new(HashMap::new());
     static MONITOR: OnceCell<Option<Retained<AnyObject>>> = const { OnceCell::new() };
+}
+
+struct Binding {
+    keymap: Keymap,
+    source: Source,
+    sender: SyncSender<Event<Source>>,
+}
+
+pub(super) fn bind(
+    key: usize,
+    keymap: &Keymap,
+    source: Source,
+    sender: &SyncSender<Event<Source>>,
+) {
+    BINDINGS.with(|bindings| {
+        let mut bindings = bindings.borrow_mut();
+        if bindings
+            .get(&key)
+            .is_none_or(|binding| binding.keymap != *keymap || binding.source != source)
+        {
+            bindings.insert(
+                key,
+                Binding {
+                    keymap: keymap.clone(),
+                    source,
+                    sender: sender.clone(),
+                },
+            );
+        }
+    });
+}
+
+pub(super) fn unbind(key: usize) {
+    BINDINGS.with(|bindings| {
+        bindings.borrow_mut().remove(&key);
+    });
+}
+
+fn launch(
+    key: usize,
+    held: Held,
+    character: &str,
+    function: bool,
+) -> Option<(Command, Source, SyncSender<Event<Source>>)> {
+    let keystroke = super::page_keystroke::from_native(
+        character,
+        gpui::Modifiers {
+            platform: held.command,
+            shift: held.shift,
+            alt: held.option,
+            control: held.control,
+            function,
+        },
+    );
+    BINDINGS.with(|bindings| {
+        let bindings = bindings.borrow();
+        let binding = bindings.get(&key)?;
+        Some((
+            binding.keymap.editor_launch(&keystroke)?,
+            binding.source,
+            binding.sender.clone(),
+        ))
+    })
 }
 
 /// Starts routing keys to pages. Later calls do nothing.
@@ -140,10 +209,28 @@ fn deliver(event: &NSEvent) -> bool {
                 option: flags.contains(NSEventModifierFlags::Option),
                 control: flags.contains(NSEventModifierFlags::Control),
             };
-            let key = event
+            let character = event
                 .charactersIgnoringModifiers()
-                .map(|key| key.to_string().to_lowercase())
+                .map(|key| key.to_string())
                 .unwrap_or_default();
+            let key = character.to_lowercase();
+            let pointer = Retained::as_ptr(&page) as usize;
+            if let Some((command, source, sender)) = launch(
+                pointer,
+                held,
+                &character,
+                flags.contains(NSEventModifierFlags::Function),
+            ) {
+                // SAFETY: only invoke the composition query when this native responder implements it.
+                let composing = page.respondsToSelector(sel!(hasMarkedText))
+                    && unsafe { objc2::msg_send![&*page, hasMarkedText] };
+                if !composing {
+                    if !event.isARepeat() {
+                        super::native_report::report(&sender, Event::CodeCommand(source, command));
+                    }
+                    return true;
+                }
+            }
             match route(held, &key) {
                 Route::Page => page.keyDown(event),
                 Route::App => return false,

@@ -379,6 +379,28 @@ impl HerdrWindow {
                 continue;
             }
             match event {
+                #[cfg(target_os = "macos")]
+                Event::CodeCommand(id, command) => {
+                    let Some(group) = self.group_showing(&Pick::Page(id), cx) else {
+                        continue;
+                    };
+                    if store(cx)
+                        .and_then(|store| store.get(id))
+                        .and_then(super::Tab::code_target)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                    match command {
+                        crate::controls::Command::OpenCode => {
+                            self.open_code(Some(group), window, cx)
+                        }
+                        crate::controls::Command::OpenCodeOn => {
+                            self.open_code_on(Some(group), window, cx)
+                        }
+                        _ => {}
+                    }
+                }
                 Event::Title(id, title) => {
                     Store::update(cx, |store| store.visited(id, None, Some(&title)));
                 }

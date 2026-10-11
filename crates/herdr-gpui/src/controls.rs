@@ -705,13 +705,13 @@ pub const COMMANDS: &[CommandInfo] = &[
         command: Command::OpenCode,
         name: "open_code",
         label: "Open VS Code",
-        shortcuts: &[],
+        shortcuts: &["cmd-alt-e"],
     },
     CommandInfo {
         command: Command::OpenCodeOn,
         name: "open_code_on",
         label: "Open VS Code On",
-        shortcuts: &[],
+        shortcuts: &["cmd-alt-shift-e"],
     },
     CommandInfo {
         command: Command::ToggleFullScreen,

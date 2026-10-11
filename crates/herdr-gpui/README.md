@@ -2126,10 +2126,17 @@ herdr-gpui browser skill > ~/.claude/skills/herdr-gpui-browser/SKILL.md
 ## VS Code
 
 On macOS, a workspace can hold several VS Code tabs, each backed by a different
-machine. **Open VS Code** (`open_code`) opens the workspace's owning machine in
-automatic mode. **Open VS Code On** (`open_code_on`) opens a searchable machine
-picker in the same workspace. Both actions appear in the Terminal menu, each
-editor group's **…** menu, and the command palette.
+machine. **Open VS Code** (`cmd-alt-e`, `open_code`) opens the workspace's owning
+machine in automatic mode. **Open VS Code On** (`cmd-alt-shift-e`, `open_code_on`)
+opens a searchable machine picker in the same workspace. Both actions appear in
+the Terminal menu, each editor group's **…** menu, the command palette, and
+Keyboard Shortcuts. Rebind them under `[keybindings]`; `""` or `[]` unbinds them:
+
+```toml
+[keybindings]
+open_code = "cmd-alt-e"
+open_code_on = "cmd-alt-shift-e"
+```
 
 The picker offers **Local**, saved SSH machines, and **Configured** when available.
 Enabled SSH entries remain available while their Herdr daemon is offline: the
@@ -2201,9 +2208,11 @@ A `url` without a `mode` also selects Configured for direct Open VS Code.
 Changing this address retargets Configured tabs only, preserving their navigation.
 The machine picker can still open managed Local or SSH editors independently.
 
-VS Code fills its tab without a browser toolbar or annotation controls. Its
-focused native page keeps editor shortcuts and text/IME input. Cut, Copy, Paste,
-and Paste and Match Style retain native page handling.
+VS Code fills its tab without a browser toolbar or annotation controls. On macOS,
+its focused native page recognizes the two resolved direct launch bindings,
+including overrides, unbinding, and reloads. Other editor shortcuts and text/IME
+input stay with the editor; Cut, Copy, Paste, and Paste and Match Style retain
+native page handling. Prefix chords are not added to focused native pages.
 
 ## System Notifications
 

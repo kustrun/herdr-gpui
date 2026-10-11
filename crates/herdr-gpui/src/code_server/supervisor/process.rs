@@ -28,7 +28,7 @@ const MAX_LINE: u64 = 4096;
 /// Detaches the child from the app's input, and pipes its output to
 /// [`listening`] alone: `serve-web` prints the address with its token, which
 /// must not reach any log.
-pub(super) fn isolate(command: &mut Command) {
+pub(in crate::code_server) fn isolate(command: &mut Command) {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -58,7 +58,7 @@ pub(super) fn terminate(child: &Child) {
 
 /// Ends the child and what it started at once. Blocking on Windows, where it
 /// runs `taskkill`: call it without holding a lock.
-pub(super) fn kill(child: &mut Child) {
+pub(in crate::code_server) fn kill(child: &mut Child) {
     #[cfg(unix)]
     {
         let group = rustix::process::Pid::from_child(child);
@@ -110,7 +110,7 @@ pub(super) fn listening(stdout: ChildStdout) -> io::Result<Arc<AtomicBool>> {
 }
 
 /// Whether the child has exited, leaving it unreaped on Unix.
-pub(super) fn exited(child: &mut Child) -> io::Result<bool> {
+pub(in crate::code_server) fn exited(child: &mut Child) -> io::Result<bool> {
     #[cfg(unix)]
     {
         use rustix::process::{Pid, WaitId, WaitIdOptions, waitid};

@@ -6,6 +6,28 @@ use std::{io, path::PathBuf, process::ExitStatus, time::Duration};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("This machine cannot run a managed VS Code editor.")]
+    UnsupportedTarget,
+    #[error("VS Code installation was cancelled.")]
+    Cancelled,
+    #[error("Could not read official VS Code release metadata.")]
+    MetadataRequest(#[source] ureq::Error),
+    #[error("Official VS Code release metadata was invalid.")]
+    Metadata,
+    #[error("Could not download the VS Code command line.")]
+    Download(#[source] ureq::Error),
+    #[error("The VS Code archive failed its size or SHA256 check. Retry to download it again.")]
+    Digest,
+    #[error("The VS Code archive contains an unexpected path or file type.")]
+    Archive,
+    #[error(
+        "Managed VS Code state must be private, owned directories and regular files. Check permissions and retry."
+    )]
+    UnsafeCache,
+    #[error("Could not use the private VS Code cache.")]
+    Cache(#[source] io::Error),
+    #[error("The VS Code command line does not support serve-web.")]
+    Capability,
     /// Only the host and port are named: the address's query may hold the
     /// server's connection token.
     #[error("{reason} at {address}.")]

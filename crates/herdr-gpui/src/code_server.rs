@@ -8,7 +8,22 @@
 //! child process, and [`launcher`] ties them to the windows and the config.
 mod cli;
 mod error;
+#[cfg(unix)]
+#[cfg_attr(
+    target_os = "macos",
+    allow(
+        dead_code,
+        reason = "The managed runtime connects this foundation in the next stack change."
+    )
+)]
+mod install;
 pub(crate) mod launcher;
+#[cfg(unix)]
+#[allow(
+    dead_code,
+    reason = "The managed runtime connects this foundation in the next stack change."
+)]
+mod private;
 pub(crate) mod supervisor;
 mod token;
 

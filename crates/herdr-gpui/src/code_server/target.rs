@@ -34,8 +34,6 @@ impl Target {
         })
     }
 
-    // Shared persisted-identity consumers arrive in the following editor leaves.
-    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn valid(&self) -> bool {
         match self {
             Self::Configured | Self::Local => true,

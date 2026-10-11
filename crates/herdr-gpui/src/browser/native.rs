@@ -1,13 +1,14 @@
 //! One window's native web views, one per browser tab it has shown. A view
 //! is a platform child view layered above the GPUI surface: one per side of a
 //! split is visible, and the window hides them while an overlay is open.
+use super::native_report::report;
 use super::{Location, Tab, TabId, WebUrl, location::PREVIEW_SCHEME, preview::Preview};
 use gpui::{App, AppContext as _, Entity, Window};
 use gpui_wry::WebView;
 use std::{
     collections::HashMap,
     rc::Rc,
-    sync::mpsc::{self, Receiver, SyncSender, TrySendError},
+    sync::mpsc::{self, Receiver, SyncSender},
 };
 #[cfg(target_os = "macos")]
 use std::{
@@ -132,12 +133,6 @@ struct Outbox {
     /// at most one entry per popup.
     #[cfg(target_os = "macos")]
     closed: Arc<Mutex<HashSet<u64>>>,
-}
-
-fn report(sender: &SyncSender<Event<Source>>, event: Event<Source>) {
-    if let Err(TrySendError::Full(event)) = sender.try_send(event) {
-        tracing::debug!(?event, "Dropped a browser event");
-    }
 }
 
 /// The handlers every page has, its own or a popup's, reporting as `source`.
@@ -285,6 +280,14 @@ impl Pages {
                     report(&posted, Event::Posted(Source::Tab(id), body));
                 }
             });
+        #[cfg(target_os = "macos")]
+        let builder = {
+            use wry::WebViewBuilderExtDarwin as _;
+            match super::native_profile::identifier(tab) {
+                Some(identifier) => builder.with_data_store_identifier(identifier),
+                None => builder,
+            }
+        };
         // Window has an inherent `window_handle` of its own.
         let handle = HasWindowHandle::window_handle(window)?;
         let view = builder.build_as_child(&handle)?;

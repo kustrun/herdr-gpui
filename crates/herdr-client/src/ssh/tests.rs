@@ -1,6 +1,7 @@
 use super::*;
 
 mod command;
+mod controlled_forward;
 mod forward;
 mod incompatible;
 mod probe_failure;
@@ -246,7 +247,7 @@ fn script_runs_under_remote_sh_and_rejects_option_targets() {
     let args: Vec<_> = command.get_args().map(|a| a.to_str().unwrap()).collect();
     assert_eq!(args[args.len() - 3], "--");
     assert_eq!(args[args.len() - 2], "user@host");
-    assert_eq!(args[args.len() - 1], "/bin/sh -c 'echo '\\''hi'\\'''");
+    assert_eq!(args[args.len() - 1], "exec /bin/sh -c 'echo '\\''hi'\\'''");
     assert!(matches!(
         script_command("-oProxyCommand=bad", "true"),
         Err(Error::InvalidSshTarget)

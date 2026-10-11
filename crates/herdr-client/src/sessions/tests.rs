@@ -475,7 +475,7 @@ fn the_remote_listing_walks_the_shared_candidate_roots() {
         .get_args()
         .map(|arg| arg.to_str().unwrap())
         .collect();
-    let wrapped = format!("/bin/sh -c {}", crate::ssh::quote(&script));
+    let wrapped = format!("exec /bin/sh -c {}", crate::ssh::quote(&script));
     assert_eq!(args.last(), Some(&wrapped.as_str()));
     assert!(args.contains(&"BatchMode=yes"));
     // A malformed target is rejected before anything is built or spawned.

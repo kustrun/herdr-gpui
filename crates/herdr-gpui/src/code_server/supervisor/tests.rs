@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+#[cfg(windows)]
+mod windows_port;
 
 #[test]
 fn backoff_doubles_up_to_its_limit() {
@@ -400,10 +402,13 @@ mod process {
             save_port: |_: NonZeroU16| Ok(()),
             timing: fast(),
         };
-        let Ended::Failed { error, healthy } = worker.serve(&Address {
-            port: NonZeroU16::new(51234).unwrap(),
-            url: WebUrl::try_from("http://127.0.0.1:51234/").unwrap(),
-        }) else {
+        let Ended::Failed { error, healthy } = worker.serve(
+            &Address {
+                port: NonZeroU16::new(51234).unwrap(),
+                url: WebUrl::try_from("http://127.0.0.1:51234/").unwrap(),
+            },
+            crate::code_server::attempts::Permit::acquire(|| false).unwrap(),
+        ) else {
             panic!("a missing program must fail to start")
         };
         assert!(!healthy);

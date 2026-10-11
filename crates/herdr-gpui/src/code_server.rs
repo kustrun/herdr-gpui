@@ -6,11 +6,22 @@
 //! The submodules start such a server for VS Code tabs: [`cli`] finds VS Code's
 //! command, [`token`] keeps the connection token, [`supervisor`] runs the
 //! child process, and [`launcher`] ties them to the windows and the config.
+mod attempts;
 mod cli;
 mod error;
+#[cfg(unix)]
+mod install;
 pub(crate) mod launcher;
+#[cfg(unix)]
+mod managed;
+#[cfg(unix)]
+mod private;
+#[cfg(unix)]
+mod remote;
 pub(crate) mod supervisor;
+mod target;
 mod token;
+pub(crate) use target::Target;
 
 pub use error::Error;
 pub(crate) use launcher::{Launcher, Startup};

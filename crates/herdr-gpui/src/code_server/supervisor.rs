@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod process;
+pub(super) mod process;
 
 /// What to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -397,6 +397,8 @@ where
                 Ended::Stopped => return,
                 Ended::Failed { error, healthy } => (error, healthy),
             };
+            let permanent =
+                cfg!(unix) && matches!(&error, crate::Error::Code(error) if error.permanent());
             failures = if healthy { 1 } else { failures + 1 };
             let delay = self.timing.backoff.delay(failures);
             // Errors name the host and port alone, never the token.
@@ -407,7 +409,7 @@ where
                     retry: Instant::now() + delay,
                 });
             });
-            if self.shared.sleep(delay) {
+            if permanent || self.shared.sleep(delay) {
                 return;
             }
         }
@@ -417,6 +419,9 @@ where
         if self.shared.lock().stopped {
             return Ended::Stopped;
         }
+        let Some(permit) = super::attempts::Permit::acquire(|| self.shared.lock().stopped) else {
+            return Ended::Stopped;
+        };
         let address = match self.prepare() {
             Ok(address) => address,
             Err(error) => return failed(error),
@@ -432,7 +437,7 @@ where
             }
             Err(source) => return failed(Error::PortCheck { port, source }),
         }
-        self.serve(&address)
+        self.serve(&address, permit)
     }
 
     /// The address for this start. The token is read again each time, so a
@@ -443,7 +448,7 @@ where
             Some(port) => port,
             None => {
                 let port = free_port()?;
-                // VS Code still runs on it; the next launch picks another.
+                #[cfg(windows)]
                 if let Err(error) = (self.save_port)(port) {
                     tracing::warn!(%error, port = port.get(), "Could not save the VS Code port");
                 }
@@ -460,7 +465,8 @@ where
         Ok(address)
     }
 
-    fn serve(&self, address: &Address) -> Ended {
+    fn serve(&self, address: &Address, permit: super::attempts::Permit) -> Ended {
+        let mut permit = Some(permit);
         {
             let mut slot = self.shared.lock();
             if slot.stopped {
@@ -548,6 +554,14 @@ where
                     && (self.probe)(&address.url).is_ok()
                     && self.shared.alive()
                 {
+                    #[cfg(unix)]
+                    if self.plan.port.is_none()
+                        && let Err(error) = (self.save_port)(address.port)
+                    {
+                        self.shared.end(self.timing.grace);
+                        return failed(error);
+                    }
+                    permit.take();
                     answered = Some(Instant::now());
                     self.shared
                         .publish(|slot| slot.status = Some(Status::Ready));
@@ -562,7 +576,7 @@ where
 }
 
 /// A loopback port the system considers free right now.
-fn free_port() -> Result<NonZeroU16, Error> {
+pub(super) fn free_port() -> Result<NonZeroU16, Error> {
     let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .and_then(|listener| listener.local_addr())
         .map(|address| address.port())

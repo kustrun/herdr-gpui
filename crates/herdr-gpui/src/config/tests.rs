@@ -15,6 +15,8 @@ mod icon_font;
 mod keybindings;
 mod line_height;
 mod loading;
+#[cfg(unix)]
+mod managed_code_port;
 mod missing_fonts;
 mod notification_settings;
 mod preferences;

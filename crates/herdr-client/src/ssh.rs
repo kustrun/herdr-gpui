@@ -505,10 +505,31 @@ pub const FORWARD_READY: &str = "herdr-forward-ready";
 /// the child: its streams, readiness, and reaping.
 #[cfg(unix)]
 pub fn forward_command(target: &str, local: u16, remote: u16) -> Result<Command> {
+    forwarding(target, local, remote, ForwardLifetime::Child)
+}
+
+/// The same strict forward, with a foreground remote command whose lifetime is
+/// the caller's piped stdin. EOF also closes the forward if the caller exits
+/// before it can explicitly kill its child; `-N` alone has no such owner pipe.
+#[cfg(unix)]
+pub fn controlled_forward_command(target: &str, local: u16, remote: u16) -> Result<Command> {
+    forwarding(target, local, remote, ForwardLifetime::Stdin)
+}
+
+#[cfg(unix)]
+enum ForwardLifetime {
+    Child,
+    Stdin,
+}
+
+#[cfg(unix)]
+fn forwarding(target: &str, local: u16, remote: u16, lifetime: ForwardLifetime) -> Result<Command> {
     validate_target(target)?;
     let mut command = noninteractive();
+    if matches!(lifetime, ForwardLifetime::Child) {
+        command.arg("-N");
+    }
     command.args([
-        "-N",
         "-o",
         "ControlPath=none",
         "-o",
@@ -522,6 +543,9 @@ pub fn forward_command(target: &str, local: u16, remote: u16) -> Result<Command>
         "--",
         target,
     ]);
+    if matches!(lifetime, ForwardLifetime::Stdin) {
+        command.arg("exec /bin/sh -c 'exec cat >/dev/null'");
+    }
     Ok(command)
 }
 
@@ -532,13 +556,21 @@ pub fn forward_command(target: &str, _local: u16, _remote: u16) -> Result<Comman
     Err(Error::SshUnsupported)
 }
 
+#[cfg(windows)]
+pub fn controlled_forward_command(target: &str, local: u16, remote: u16) -> Result<Command> {
+    forward_command(target, local, remote)
+}
+
 /// A one-shot, noninteractive `ssh` child that runs `script` under the remote
 /// `/bin/sh`, whatever the login shell, with the bridge's connection policy.
 /// The caller owns the child: its streams, deadline, and reaping.
 #[cfg(unix)]
 pub fn script_command(target: &str, script: &str) -> Result<Command> {
     validate_target(target)?;
-    Ok(command(target, &format!("/bin/sh -c {}", quote(script))))
+    Ok(command(
+        target,
+        &format!("exec /bin/sh -c {}", quote(script)),
+    ))
 }
 
 #[cfg(unix)]

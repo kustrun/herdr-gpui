@@ -30,12 +30,16 @@ fn report(status: Status, port: Option<u16>) -> Report {
 }
 
 #[test]
-fn starting_is_the_default_only_once_vs_code_is_found() {
+fn default_mode_is_platform_compatible_and_configuration_based_on_mac() {
     let blank = CodeConfig::default();
     assert_eq!(mode(&blank, &found()), Some(CodeMode::Start));
-    assert_eq!(mode(&blank, &Cli::Missing), Some(CodeMode::Address));
-    assert_eq!(mode(&blank, &Cli::Finding), None);
-    assert_eq!(mode(&blank, &Cli::Unknown), None);
+    let automatic = cfg!(target_os = "macos").then_some(CodeMode::Start);
+    assert_eq!(
+        mode(&blank, &Cli::Missing),
+        automatic.or(Some(CodeMode::Address))
+    );
+    assert_eq!(mode(&blank, &Cli::Finding), automatic);
+    assert_eq!(mode(&blank, &Cli::Unknown), automatic);
     // A config from before the choice keeps its address.
     let older = CodeConfig {
         url: Some(url("http://127.0.0.1:8000/?tkn=x")),
@@ -304,3 +308,5 @@ fn a_config_that_no_longer_starts_vs_code_stops_it(cx: &mut gpui::TestAppContext
         assert!(!Launcher::running(cx));
     });
 }
+
+mod targets;

@@ -461,6 +461,7 @@ impl OrchestratorView {
             .map(|(index, banner)| {
                 banner
                     .id(("orchestrator-banner", index))
+                    .debug_selector(move || format!("orchestrator-banner-{index}"))
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, _| this.refresh()))
                     .into_any_element()

@@ -1448,8 +1448,10 @@ or macOS client and the local session or a saved SSH host on both ends.
 The Orchestrator row of a group's "…" menu, the Open Orchestrator command, or
 the Orchestrator row of a workspace's popover opens a tab listing that
 workspace's repository: its GitHub issues and pull requests, its
-[Beads](https://github.com/steveyegge/beads) issues when the main checkout has
-a `.beads` folder, and the agent runs dispatched for them. It works for the
+[Beads](https://github.com/steveyegge/beads) issues from the checkout's nearest
+`.beads` folder (including a parent workspace, with the main checkout as a
+fallback), and the agent runs dispatched for them. Local Beads loads before
+GitHub and stays available when GitHub is signed out or fails. It works for the
 local session and saved SSH hosts.
 
 - **Issues** lists open GitHub issues and beads together. A bead's children sit

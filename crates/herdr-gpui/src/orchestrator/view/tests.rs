@@ -100,3 +100,5 @@ fn live(run: &Run, pane: &str, status: AgentStatus) -> LiveAgent {
         title: Some("Running tests".into()),
     }
 }
+
+mod local_beads;

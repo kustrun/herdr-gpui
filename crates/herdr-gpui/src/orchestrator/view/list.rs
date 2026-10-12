@@ -133,6 +133,7 @@ impl OrchestratorView {
         let hover = theme.surface;
         div()
             .id(id)
+            .debug_selector(move || format!("{}-{}", id.0, id.1))
             .w_full()
             .h(px(height))
             .flex()

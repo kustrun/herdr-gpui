@@ -615,8 +615,10 @@ pub(super) fn sources(info: &RepoInfo) -> Vec<(SourceKey, bool)> {
             remote.source.provider == Provider::Github && remote.source.host == "github.com";
         (remote.source.clone(), supported)
     });
-    remote
+    // Publish local tasks before a remote request can fail or stall.
+    info.beads_source()
+        .map(|key| (key, true))
         .into_iter()
-        .chain(info.beads_source().map(|key| (key, true)))
+        .chain(remote)
         .collect()
 }

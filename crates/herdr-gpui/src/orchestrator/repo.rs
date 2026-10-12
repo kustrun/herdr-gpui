@@ -12,9 +12,10 @@ use std::sync::atomic::AtomicBool;
 pub(crate) struct RepoInfo {
     /// The key of the shared database.
     pub(crate) repository: Repository,
-    /// The main checkout, where `bd` runs and Beads' source is keyed.
+    /// The main checkout, where dispatched Git worktrees are created.
     pub(crate) main_root: String,
-    pub(crate) beads: bool,
+    /// The checkout or ancestor containing the local Beads database.
+    pub(crate) beads_root: Option<String>,
     /// The remote issues and pull requests come from: `origin`, else
     /// `upstream`, else the first one, as agent-launcher picks.
     pub(crate) remote: Option<Remote>,
@@ -28,12 +29,12 @@ pub(crate) struct Remote {
 }
 
 impl RepoInfo {
-    /// The Beads source of this repository, keyed as agent-launcher keys it.
+    /// The Beads source, independent of the repository's remote provider.
     pub(crate) fn beads_source(&self) -> Option<SourceKey> {
-        self.beads.then(|| SourceKey {
+        self.beads_root.as_ref().map(|root| SourceKey {
             provider: Provider::Beads,
             host: "local".into(),
-            repository: self.main_root.clone(),
+            repository: root.clone(),
         })
     }
 }
@@ -47,6 +48,7 @@ pub(crate) fn detect(
 ) -> Result<RepoInfo> {
     let body = format!(
         r#"cd -- {checkout} 2>/dev/null || exit 0
+workspace=$(pwd -P)
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd -- "$root"
 common=$(git rev-parse --git-common-dir)
@@ -54,7 +56,15 @@ common=$(cd -- "$common" && pwd -P)
 main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
 printf 'common\t%s\n' "$common"
 printf 'main\t%s\n' "${{main:-$root}}"
-if [ -d "${{main:-$root}}/.beads" ]; then printf 'beads\t1\n'; fi
+find_beads() {{
+  dir=$1
+  while :; do
+    if [ -d "$dir/.beads" ]; then printf 'beads\t%s\n' "$dir"; return 0; fi
+    [ "$dir" != / ] || return 1
+    dir=$(dirname "$dir")
+  done
+}}
+find_beads "$workspace" || find_beads "${{main:-$root}}" || true
 for name in $(git remote); do
   printf 'remote\t%s\t%s\n' "$name" "$(git remote get-url "$name" 2>/dev/null)"
 done
@@ -73,14 +83,14 @@ done
 pub(super) fn parse(target: &ConnectTarget, output: &str) -> Result<RepoInfo> {
     let mut common = None;
     let mut main = None;
-    let mut beads = false;
+    let mut beads_root = None;
     let mut remotes = Vec::new();
     for line in output.lines() {
         let mut fields = line.splitn(3, '\t');
         match (fields.next(), fields.next(), fields.next()) {
             (Some("common"), Some(path), None) => common = Some(path.to_owned()),
             (Some("main"), Some(path), None) => main = Some(path.to_owned()),
-            (Some("beads"), Some("1"), None) => beads = true,
+            (Some("beads"), Some(root), None) => beads_root = Some(root.to_owned()),
             (Some("remote"), Some(name), Some(url)) => remotes.push((name, url)),
             _ => {}
         }
@@ -110,7 +120,7 @@ pub(super) fn parse(target: &ConnectTarget, output: &str) -> Result<RepoInfo> {
     Ok(RepoInfo {
         repository,
         main_root,
-        beads,
+        beads_root,
         remote,
     })
 }

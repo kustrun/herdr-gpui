@@ -1,4 +1,4 @@
-//! Beads issues, read with the `bd` CLI in the main checkout on its host,
+//! Beads issues, read with the `bd` CLI at the discovered Beads root on its host,
 //! exactly as agent-launcher reads them: `bd list --json --all --limit 0` and
 //! `bd blocked --json`, read-only and sandboxed when `bd` supports it, with
 //! `BEADS_DIR` pinned to the checkout.

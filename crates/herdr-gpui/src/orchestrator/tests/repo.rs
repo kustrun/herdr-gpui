@@ -64,7 +64,7 @@ fn remote_urls_parse_as_agent_launcher_parses_them() {
     }
 }
 
-const OUTPUT: &str = "common\t/Users/me/src/app/.git\nmain\t/Users/me/src/app\nbeads\t1\n\
+const OUTPUT: &str = "common\t/Users/me/src/app/.git\nmain\t/Users/me/src/app\nbeads\t/Users/me/src/app\n\
 remote\tfork\tgit@github.com:me/app.git\nremote\tupstream\tgit@github.com:org/app.git\n";
 
 #[test]
@@ -126,13 +126,13 @@ fn a_folder_outside_git_is_reported() {
 
 #[test]
 fn only_github_dot_com_and_beads_are_synced() {
-    let gitlab = "common\t/r/.git\nmain\t/r\nbeads\t1\nremote\torigin\tgit@gitlab.com:g/app.git\n";
+    let gitlab = "common\t/r/.git\nmain\t/r\nbeads\t/r\nremote\torigin\tgit@gitlab.com:g/app.git\n";
     let info = parse(&ConnectTarget::Local, gitlab).unwrap();
     let found: Vec<_> = sources(&info)
         .into_iter()
         .map(|(key, supported)| (key.provider, supported))
         .collect();
-    assert_eq!(found, [(Provider::Gitlab, false), (Provider::Beads, true)]);
+    assert_eq!(found, [(Provider::Beads, true), (Provider::Gitlab, false)]);
 
     let enterprise = "common\t/r/.git\nmain\t/r\nremote\torigin\tgit@github.acme.com:g/app.git\n";
     let info = parse(&ConnectTarget::Local, enterprise).unwrap();

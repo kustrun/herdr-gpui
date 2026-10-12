@@ -26,3 +26,6 @@ fn closing_the_view_does_not_cancel_an_accepted_action() {
     resume.send(()).unwrap();
     action.join().unwrap();
 }
+
+#[cfg(unix)]
+mod local_beads;

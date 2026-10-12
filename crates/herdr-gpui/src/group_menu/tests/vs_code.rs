@@ -19,6 +19,11 @@ fn the_menu_opens_vs_code_in_its_group_once_there_is_a_server(cx: &mut TestAppCo
         view.config.code.url = Some(WebUrl::try_from("http://127.0.0.1:8000/").unwrap());
     });
     let listed = actions(&view, cx, group);
+    assert!(
+        listed
+            .iter()
+            .all(|action| action.label() != "Open VS Code On")
+    );
     if !crate::browser::EMBEDDED {
         assert!(vs_code(&listed).is_none(), "this build shows no pages");
         return;

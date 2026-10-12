@@ -2129,8 +2129,9 @@ On macOS, a workspace can hold several VS Code tabs, each backed by a different
 machine. **Open VS Code** (`cmd-alt-e`, `open_code`) opens the workspace's owning
 machine in automatic mode. **Open VS Code On** (`cmd-alt-shift-e`, `open_code_on`)
 opens a searchable machine picker in the same workspace. Both actions appear in
-the Terminal menu, each editor group's **…** menu, the command palette, and
-Keyboard Shortcuts. Rebind them under `[keybindings]`; `""` or `[]` unbinds them:
+the Terminal menu, the command palette, and Keyboard Shortcuts. Each editor
+group's **…** menu offers only **VS Code** for direct opening. Rebind the actions
+under `[keybindings]`; `""` or `[]` unbinds them:
 
 ```toml
 [keybindings]

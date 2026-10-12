@@ -2,7 +2,7 @@
 //! belongs to. Herdr has no browser panes, so these live only in this client;
 //! every window shows the same tabs for a workspace, each with its own page.
 use super::{Location, WebUrl};
-use crate::{reorder::Beside, state_file};
+use crate::{code_server::Target, reorder::Beside, state_file};
 use gpui::{App, Global};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -46,8 +46,8 @@ impl Scope {
     }
 }
 
-/// What a tab is. Every tab is listed in the tab strips; a workspace's one
-/// VS Code tab (`Code`) waits for its server, carries its token, and is
+/// What a tab is. Every tab is listed in the tab strips; a workspace's
+/// VS Code tab per backing target (`Code`) waits for its server and is
 /// never reused by an agent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,7 +61,7 @@ pub(crate) enum Place {
 }
 
 impl Place {
-    /// Whether this is the workspace's VS Code tab.
+    /// Whether this is a VS Code tab.
     pub(crate) fn is_code(self) -> bool {
         self == Self::Code
     }
@@ -83,6 +83,48 @@ pub(crate) struct Tab {
     /// Tabs saved before panels existed are all `Group` tabs.
     #[serde(default, skip_serializing_if = "is_group")]
     pub place: Place,
+    /// Immutable backing identity; ordinary tabs have no managed profile.
+    #[serde(
+        default,
+        deserialize_with = "read_target",
+        skip_serializing_if = "Option::is_none"
+    )]
+    target: Option<Target>,
+}
+
+fn read_target<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Target>, D::Error> {
+    // Empty struct variants reject extra fields that serde unit variants discard.
+    #[derive(Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+    enum Binding {
+        Configured {},
+        Local {},
+        Ssh { id: String, fingerprint: String },
+    }
+    Option::<Binding>::deserialize(deserializer)?
+        .map(|binding| {
+            let target = match binding {
+                Binding::Configured {} => Target::Configured,
+                Binding::Local {} => Target::Local,
+                Binding::Ssh { id, fingerprint } => Target::Ssh { id, fingerprint },
+            };
+            if !target.valid() {
+                return Err(serde::de::Error::custom("Invalid browser target binding"));
+            }
+            Ok(target)
+        })
+        .transpose()
+}
+
+fn code_location(location: Location) -> Location {
+    match location {
+        Location::Web { url } => Location::Web {
+            url: super::code::without_token(&url),
+        },
+        other => other,
+    }
 }
 
 fn is_group(place: &Place) -> bool {
@@ -90,6 +132,10 @@ fn is_group(place: &Place) -> bool {
 }
 
 impl Tab {
+    pub(crate) fn code_target(&self) -> Option<&Target> {
+        self.target.as_ref()
+    }
+
     fn valid(&self) -> bool {
         !self.workspace_id.is_empty()
             && self.workspace_id.len() <= 256
@@ -100,6 +146,11 @@ impl Tab {
                 .is_none_or(|pane| !pane.is_empty() && pane.len() <= 256)
             // No agent opens a VS Code tab, so none has notes to send back.
             && (!self.place.is_code() || self.origin.is_none())
+            && match (&self.target, self.place) {
+                (Some(target), Place::Code) => target.valid(),
+                (None, Place::Group) => true,
+                _ => false,
+            }
     }
 }
 
@@ -130,9 +181,23 @@ fn clean_title(title: &str) -> String {
 }
 
 fn parse(bytes: &[u8]) -> crate::Result<Vec<Tab>> {
-    let saved: Saved = serde_json::from_slice(bytes)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err(crate::Error::InvalidBrowserTabs);
+    }
+    let mut saved: Saved = serde_json::from_slice(bytes)?;
+    for tab in &mut saved.tabs {
+        if tab.place.is_code() && tab.target.is_none() {
+            tab.target = Some(Target::Configured);
+        }
+    }
     if saved.tabs.len() > MAX_TABS || !saved.tabs.iter().all(Tab::valid) {
         return Err(crate::Error::InvalidBrowserTabs);
+    }
+    for tab in &mut saved.tabs {
+        if tab.code_target().is_some() {
+            tab.location = tab.location.take().map(code_location);
+            tab.title = "VS Code".into();
+        }
     }
     Ok(saved.tabs)
 }
@@ -231,11 +296,26 @@ impl Store {
             .filter(move |tab| &tab.scope == scope && tab.workspace_id == workspace_id)
     }
 
-    /// The workspace's VS Code tab, if it has one.
+    /// The workspace's legacy configured-server tab, if it has one.
     pub(crate) fn code_tab(&self, scope: &Scope, workspace_id: &str) -> Option<&Tab> {
-        self.tabs.iter().find(|tab| {
-            tab.place.is_code() && &tab.scope == scope && tab.workspace_id == workspace_id
-        })
+        self.code_tab_for(scope, workspace_id, &Target::Configured)
+    }
+
+    pub(crate) fn code_tab_for<'a>(
+        &'a self,
+        scope: &Scope,
+        workspace_id: &str,
+        target: &'a Target,
+    ) -> Option<&'a Tab> {
+        self.code_tabs(target)
+            .find(|tab| &tab.scope == scope && tab.workspace_id == workspace_id)
+    }
+
+    /// All tabs whose pages must reconnect when this target restarts.
+    pub(crate) fn code_tabs<'a>(&'a self, target: &'a Target) -> impl Iterator<Item = &'a Tab> {
+        self.tabs
+            .iter()
+            .filter(move |tab| tab.code_target() == Some(target))
     }
 
     /// Opens a tab for the strips, or returns `None` when the app already
@@ -247,7 +327,7 @@ impl Store {
         location: Option<Location>,
         origin: Option<String>,
     ) -> Option<TabId> {
-        self.push(scope, workspace_id, location, origin, Place::Group)
+        self.push(scope, workspace_id, location, origin, None)
     }
 
     /// The workspace's VS Code tab, opened on `location` if it has none yet:
@@ -260,10 +340,30 @@ impl Store {
         workspace_id: &str,
         location: Option<Location>,
     ) -> Option<TabId> {
-        if let Some(tab) = self.code_tab(&scope, workspace_id) {
+        self.open_code_tab_for(scope, workspace_id, Target::Configured, location)
+    }
+
+    /// Reopening a target reveals its existing tab without resetting navigation.
+    pub(crate) fn open_code_tab_for(
+        &mut self,
+        scope: Scope,
+        workspace_id: &str,
+        target: Target,
+        location: Option<Location>,
+    ) -> Option<TabId> {
+        if !target.valid() {
+            return None;
+        }
+        if let Some(tab) = self.code_tab_for(&scope, workspace_id, &target) {
             return Some(tab.id);
         }
-        self.push(scope, workspace_id, location, None, Place::Code)
+        self.push(
+            scope,
+            workspace_id,
+            location.map(code_location),
+            None,
+            Some(target),
+        )
     }
 
     fn push(
@@ -272,7 +372,7 @@ impl Store {
         workspace_id: &str,
         location: Option<Location>,
         origin: Option<String>,
-        place: Place,
+        target: Option<Target>,
     ) -> Option<TabId> {
         if self.tabs.len() >= MAX_TABS {
             return None;
@@ -283,12 +383,21 @@ impl Store {
             id,
             scope,
             workspace_id: workspace_id.to_owned(),
-            title: location
-                .as_ref()
-                .map_or_else(|| "New Tab".to_owned(), Location::default_title),
+            title: if target.is_some() {
+                "VS Code".into()
+            } else {
+                location
+                    .as_ref()
+                    .map_or_else(|| "New Tab".to_owned(), Location::default_title)
+            },
             location,
             origin,
-            place,
+            place: if target.is_some() {
+                Place::Code
+            } else {
+                Place::Group
+            },
+            target,
         });
         self.save();
         Some(id)
@@ -370,6 +479,12 @@ impl Store {
         let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
             return false;
         };
+        let location = if tab.code_target().is_some() {
+            location.map(code_location)
+        } else {
+            location
+        };
+        let title = title.filter(|_| tab.code_target().is_none());
         let mut changed = false;
         if let Some(location) = location
             && tab.location.as_ref() != Some(&location)
@@ -389,6 +504,22 @@ impl Store {
         changed
     }
 
+    /// A delayed target report cannot navigate a different backing machine.
+    // Consumed by the following editor integration leaf.
+    #[allow(dead_code)]
+    pub(crate) fn visited_code(
+        &mut self,
+        id: TabId,
+        target: &Target,
+        location: Option<Location>,
+        title: Option<&str>,
+    ) -> bool {
+        if self.get(id).and_then(Tab::code_target) != Some(target) {
+            return false;
+        }
+        self.visited(id, location, title)
+    }
+
     /// Drops the tabs of workspaces the daemon closed.
     pub(crate) fn forget_workspaces(&mut self, scope: &Scope, closed: &[String]) -> bool {
         let before = self.tabs.len();
@@ -401,24 +532,33 @@ impl Store {
         changed
     }
 
-    /// Moves the VS Code tabs, of every workspace, that are on another server
-    /// than `server` to it, where they stay in their groups: `retarget` gives
-    /// each one's address there. Returns whether any moved.
+    /// Keeps legacy callers restricted to the configured-server tabs.
     pub(crate) fn follow_code_server(
         &mut self,
+        server: &WebUrl,
+        retarget: impl Fn(&WebUrl) -> WebUrl,
+    ) -> bool {
+        self.follow_code_target(&Target::Configured, server, retarget)
+    }
+
+    /// Moves only this target's tabs, preserving each page's folder/navigation
+    /// through the caller's existing URL transform.
+    pub(crate) fn follow_code_target(
+        &mut self,
+        target: &Target,
         server: &WebUrl,
         retarget: impl Fn(&WebUrl) -> WebUrl,
     ) -> bool {
         let origin = server.origin();
         let mut changed = false;
         for tab in &mut self.tabs {
-            if !tab.place.is_code() {
+            if tab.code_target() != Some(target) {
                 continue;
             }
             if let Some(Location::Web { url }) = &tab.location
                 && url.origin() != origin
             {
-                tab.location = Some(Location::Web { url: retarget(url) });
+                tab.location = Some(code_location(Location::Web { url: retarget(url) }));
                 changed = true;
             }
         }

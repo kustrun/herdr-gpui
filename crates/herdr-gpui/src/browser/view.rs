@@ -418,6 +418,11 @@ impl HerdrWindow {
         cx: &mut Context<Self>,
     ) -> Option<(Option<GroupId>, TabId)> {
         let parent = store(cx).and_then(|store| store.get(opener)).cloned()?;
+        let url = if parent.code_target().is_some() {
+            super::code::without_token(&url)
+        } else {
+            url
+        };
         let group = self.group_showing(&Pick::Page(opener), cx);
         let opened = Store::update(cx, |store| {
             store.open(

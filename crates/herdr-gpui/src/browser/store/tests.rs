@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+mod code_navigation;
+mod machine_targets;
+
 fn url(value: &str) -> Option<Location> {
     Some(Location::Web {
         url: WebUrl::try_from(value).unwrap(),

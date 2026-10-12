@@ -23,6 +23,10 @@ mod layouts;
 mod location;
 #[cfg(any(target_os = "macos", windows))]
 mod native;
+#[cfg(any(target_os = "macos", test))]
+mod native_profile;
+#[cfg(any(target_os = "macos", windows, test))]
+mod native_report;
 #[cfg(target_os = "macos")]
 mod page_keys;
 #[cfg(target_os = "macos")]

@@ -1,19 +1,21 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-use crate::browser::{Scope, TabId, WebUrl};
+use crate::browser::{Scope, Store, WebUrl};
 
 fn tab() -> Tab {
-    Tab {
-        id: TabId::test(0),
-        scope: Scope::endpoint("local"),
-        workspace_id: "w_1".into(),
-        location: Some(Location::Web {
-            url: WebUrl::try_from("http://localhost:3000/").unwrap(),
-        }),
-        title: "Mockup".into(),
-        origin: Some("w_1:p1".into()),
-        place: Default::default(),
-    }
+    let mut store = Store::default();
+    let id = store
+        .open(
+            Scope::endpoint("local"),
+            "w_1",
+            Some(Location::Web {
+                url: WebUrl::try_from("http://localhost:3000/").unwrap(),
+            }),
+            Some("w_1:p1".into()),
+        )
+        .unwrap();
+    store.visited(id, None, Some("Mockup"));
+    store.get(id).unwrap().clone()
 }
 
 #[test]

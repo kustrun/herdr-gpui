@@ -7,9 +7,9 @@ const COMMIT: &str = "2a59476c9bfcb90b3ddc372c36762471b7dfad1c";
 /// The workspace's folder, which must be absolute where the test runs, and
 /// how it reads in the address.
 #[cfg(not(windows))]
-const FOLDER: (&str, &str) = ("/Users/me/project", "%2FUsers%2Fme%2Fproject");
+const FOLDER: (&str, &str) = ("/projects/example", "%2Fprojects%2Fexample");
 #[cfg(windows)]
-const FOLDER: (&str, &str) = (r"C:\Users\me\project", "C%3A%5CUsers%5Cme%5Cproject");
+const FOLDER: (&str, &str) = (r"C:\projects\example", "C%3A%5Cprojects%5Cexample");
 
 fn answers(_: &WebUrl) -> crate::Result<Server> {
     Ok(Server::from_version(COMMIT).unwrap())
@@ -41,10 +41,7 @@ fn a_new_vs_code_page_opens_its_workspace_folder(cx: &mut gpui::TestAppContext) 
         let tab = cx.global::<Store>().code_tab(&tab_scope, "w0").unwrap();
         assert_eq!(
             tab.location,
-            Some(url(&format!(
-                "http://127.0.0.1:8000/?tkn=x&folder={}",
-                FOLDER.1
-            )))
+            Some(url(&format!("http://127.0.0.1:8000/?folder={}", FOLDER.1)))
         );
     });
 }

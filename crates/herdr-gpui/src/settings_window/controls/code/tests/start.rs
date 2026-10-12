@@ -5,6 +5,9 @@ use crate::code_server::{
     supervisor::{Address, Report, Status},
 };
 
+#[cfg(target_os = "macos")]
+mod managed;
+
 type Edits = Arc<Mutex<Vec<CodeEdit>>>;
 
 /// The Code page with VS Code as `cli` says, its saves recorded.
@@ -102,6 +105,7 @@ fn choosing_an_address_saves_it_and_stops_vs_code(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(not(target_os = "macos"))]
 fn without_vs_code_only_an_address_can_be_chosen(cx: &mut TestAppContext) {
     let (view, cx, edits) = start_page(cx, Cli::Missing);
     view.read_with(cx, |view, cx| {
@@ -133,6 +137,7 @@ fn the_server_state_names_its_port_and_never_its_token(cx: &mut TestAppContext) 
         );
     });
     draw(cx);
+    assert!(cx.debug_bounds("settings-code-local-server").is_some());
     assert!(cx.debug_bounds("settings-code-state").is_some());
     assert!(cx.debug_bounds("settings-code-license").is_none());
     let shown = cx.update(

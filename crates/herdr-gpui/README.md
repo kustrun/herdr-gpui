@@ -2179,6 +2179,8 @@ the current entry to open its new binding.
   failure state. **Retry** restarts that target's attempt. Permanent failures
   require Retry; transient failures retain bounded backoff. Another machine's
   pages and attempts stay independent.
+- The **Local server** card in Settings shows only this computer's server.
+  Check each remote editor's tab for that machine's status.
 - Managed servers listen only on loopback. SSH servers use a private forwarding
   connection. The local origin is picked once and retained across restarts; a
   later port collision reports an error instead of choosing another origin.

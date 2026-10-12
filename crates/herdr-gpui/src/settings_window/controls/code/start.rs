@@ -41,11 +41,11 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    /// The two ways to get a server. Starting VS Code needs it installed,
-    /// in a build that shows pages.
+    /// macOS can install a CLI on demand; other clients need one installed.
     pub(super) fn render_code_mode(&self, mode: Option<CodeMode>, cx: &mut Context<Self>) -> Div {
         let cli = Launcher::cli(cx);
-        let can_start = crate::browser::EMBEDDED && matches!(cli, Some(Cli::Found(_)));
+        let can_start = crate::browser::EMBEDDED
+            && (cfg!(target_os = "macos") || matches!(cli, Some(Cli::Found(_))));
         let choice = |id: &'static str, label: &'static str, choice: CodeMode, enabled: bool| {
             self.control_choice(id, label, mode == Some(choice), enabled)
                 .debug_selector(move || id.into())
@@ -59,11 +59,17 @@ impl SettingsWindow {
             _ if !crate::browser::EMBEDDED => {
                 Some("This build shows no pages, so it starts no VS Code.".into())
             }
-            Some(Cli::Unknown | Cli::Finding) => Some("Looking for VS Code\u{2026}".into()),
+            Some(Cli::Unknown | Cli::Finding) => {
+                Some("Looking for a local VS Code CLI\u{2026}".into())
+            }
             Some(Cli::Found(program)) => Some(SharedString::from(format!(
-                "VS Code: {}",
+                "Local VS Code CLI: {}",
                 program.display()
             ))),
+            Some(Cli::Missing) | None if cfg!(target_os = "macos") => Some(
+                "VS Code will be installed automatically on the selected machine when needed."
+                    .into(),
+            ),
             Some(Cli::Missing) | None => Some(
                 "VS Code was not found on your PATH or in Applications. Install it to have \
                  the app start it, or use the address of a server you run."
@@ -90,14 +96,24 @@ impl SettingsWindow {
                     )),
             )
             .children(note.map(|note| self.control_note(note)))
+            .when(cfg!(target_os = "macos"), |card| {
+                card.child(self.control_note(
+                    "Automatic mode opens VS Code on the workspace's machine. Use an address \
+                     opens the configured server. Use Open VS Code On to choose another machine.",
+                ))
+            })
     }
 
     /// The server the app starts: its license until accepted, then how it is.
     pub(super) fn render_code_start(&self, cx: &mut Context<Self>) -> Div {
-        let card = self.control_card("Server").child(self.control_note(
-            "The app runs `code serve-web` on 127.0.0.1 when a VS Code tab first needs it, \
-             and stops it when it quits.",
-        ));
+        let card = self
+            .control_card("Local server")
+            .debug_selector(|| "settings-code-local-server".into())
+            .child(self.control_note(
+                "Status for the server on this computer. Servers on other machines show their \
+                 status in their VS Code tabs. This server starts when a tab needs it and stops \
+                 when Herdr quits.",
+            ));
         match Launcher::startup(cx, &self.config.code) {
             Startup::Consent => card.child(self.render_code_license(cx)),
             Startup::Idle => card.child(self.control_note("Not started yet.")),

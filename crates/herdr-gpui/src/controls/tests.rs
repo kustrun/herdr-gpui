@@ -111,8 +111,8 @@ fn catalog_has_all_native_commands_and_gpui_shortcuts() {
         (OpenOrchestrator, &[]),
         (InstallBrowserSkill, &[]),
         (SplitEditor, &["cmd-\\"]),
-        (OpenCode, &[]),
-        (OpenCodeOn, &[]),
+        (OpenCode, &["cmd-alt-e"]),
+        (OpenCodeOn, &["cmd-alt-shift-e"]),
         (ToggleFullScreen, &["ctrl-cmd-f"]),
         (CycleWindows, &["cmd-`"]),
     ];

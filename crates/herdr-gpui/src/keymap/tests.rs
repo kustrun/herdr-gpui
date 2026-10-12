@@ -1,6 +1,7 @@
 use super::*;
 use herdr_client::protocol::ClientShellCommand;
 
+mod code_launch;
 mod custom_reference;
 mod literal_plus;
 

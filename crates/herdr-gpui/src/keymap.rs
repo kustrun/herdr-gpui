@@ -282,6 +282,24 @@ impl Keymap {
             .map(|shortcut| shortcut.label.as_str())
     }
 
+    /// Only these direct commands can leave a focused native editor page.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn editor_launch(&self, typed: &Keystroke) -> Option<Command> {
+        // Keep clipboard actions and Paste and Match Style owned by WebKit.
+        if typed.modifiers.platform
+            && (typed.key == "v"
+                || (!typed.modifiers.alt
+                    && !typed.modifiers.control
+                    && !typed.modifiers.shift
+                    && matches!(typed.key.as_str(), "c" | "x")))
+        {
+            return None;
+        }
+        [Command::OpenCode, Command::OpenCodeOn]
+            .into_iter()
+            .find(|command| self.triggers(*command, typed, false))
+    }
+
     /// The shortcut shown beside `command`, or `""` when it is unbound.
     pub fn primary(&self, command: Command) -> &str {
         self.shortcuts(command).next().unwrap_or("")

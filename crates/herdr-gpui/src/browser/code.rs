@@ -156,6 +156,11 @@ impl HerdrWindow {
         Launcher::sync(cx, &self.config.code);
         Launcher::sync_targets(cx, &hosts);
         Launcher::refresh(cx);
+        #[cfg(target_os = "macos")]
+        {
+            let keymap = self.keymap().clone();
+            self.browser.pages.code_keys(keymap, cx);
+        }
         let wanted = self.displayed_code_tabs(cx);
         self.browser
             .code_servers
@@ -307,6 +312,11 @@ impl HerdrWindow {
             }
             if let Some(server) = self.browser.code_servers.get_mut(&tab.id) {
                 server.state = Reach::Unknown;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let keymap = self.keymap().clone();
+                self.browser.pages.code_keys(keymap, cx);
             }
             cx.notify();
         }

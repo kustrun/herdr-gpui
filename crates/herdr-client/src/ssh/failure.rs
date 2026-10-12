@@ -59,7 +59,7 @@ impl SshFailure {
     /// `ssh` exits 255 for its own failures; the bridge script exits 127 when
     /// it found no candidate binary at all. Any other status is the remote's.
     #[cfg(unix)]
-    pub(super) fn classify(code: Option<i32>, stderr: &[u8]) -> Self {
+    pub fn classify(code: Option<i32>, stderr: &[u8]) -> Self {
         Self::classify_with(code, stderr, resolve)
     }
 

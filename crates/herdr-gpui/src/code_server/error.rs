@@ -8,6 +8,8 @@ use std::{io, path::PathBuf, process::ExitStatus, time::Duration};
 pub enum Error {
     #[error("This machine cannot run a managed VS Code editor.")]
     UnsupportedTarget,
+    #[error("Invalid editor machine connection.")]
+    Target(#[source] herdr_client::Error),
     #[error("VS Code installation was cancelled.")]
     Cancelled,
     #[error("Could not read official VS Code release metadata.")]
@@ -28,6 +30,24 @@ pub enum Error {
     Cache(#[source] io::Error),
     #[error("The VS Code command line does not support serve-web.")]
     Capability,
+    #[error("Could not run an editor machine probe.")]
+    Probe(#[source] herdr_client::Error),
+    #[error("The editor SSH connection failed: {0}.")]
+    Ssh(herdr_client::SshFailure),
+    #[error("The remote editor requires curl, tar, gzip and sha256sum or shasum.")]
+    RemoteTools,
+    #[error("The remote editor runtime failed its ownership or readiness check.")]
+    RemoteOwnership,
+    #[error("The remote VS Code process stopped unexpectedly.")]
+    RemoteExited,
+    #[error("The remote VS Code installation failed. Check platform compatibility and retry.")]
+    RemoteInstall,
+    #[error("Could not control the editor SSH connection.")]
+    RemoteIo(#[source] io::Error),
+    #[error(
+        "Port {port} on 127.0.0.1 is in use. Close the program using it, then Retry; the editor keeps this address to preserve its settings."
+    )]
+    OriginTaken { port: u16 },
     /// Only the host and port are named: the address's query may hold the
     /// server's connection token.
     #[error("{reason} at {address}.")]

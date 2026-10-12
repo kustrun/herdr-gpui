@@ -24,6 +24,8 @@ mod provider_settings;
 mod refresh;
 #[cfg(unix)]
 mod remote_hosts;
+#[cfg(unix)]
+mod script_exec;
 mod shown_providers;
 mod status_bar_room;
 

@@ -24,6 +24,15 @@ pub(crate) mod launcher;
     reason = "The managed runtime connects this foundation in the next stack change."
 )]
 mod private;
+#[cfg(unix)]
+#[cfg_attr(
+    target_os = "macos",
+    allow(
+        dead_code,
+        reason = "The managed runtime connects this foundation in the next stack change."
+    )
+)]
+mod remote;
 pub(crate) mod supervisor;
 mod token;
 

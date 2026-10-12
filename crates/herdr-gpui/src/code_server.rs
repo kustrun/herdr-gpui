@@ -6,35 +6,22 @@
 //! The submodules start such a server for VS Code tabs: [`cli`] finds VS Code's
 //! command, [`token`] keeps the connection token, [`supervisor`] runs the
 //! child process, and [`launcher`] ties them to the windows and the config.
+mod attempts;
 mod cli;
 mod error;
 #[cfg(unix)]
-#[cfg_attr(
-    target_os = "macos",
-    allow(
-        dead_code,
-        reason = "The managed runtime connects this foundation in the next stack change."
-    )
-)]
 mod install;
 pub(crate) mod launcher;
 #[cfg(unix)]
-#[allow(
-    dead_code,
-    reason = "The managed runtime connects this foundation in the next stack change."
-)]
+mod managed;
+#[cfg(unix)]
 mod private;
 #[cfg(unix)]
-#[cfg_attr(
-    target_os = "macos",
-    allow(
-        dead_code,
-        reason = "The managed runtime connects this foundation in the next stack change."
-    )
-)]
 mod remote;
 pub(crate) mod supervisor;
+mod target;
 mod token;
+pub(crate) use target::Target;
 
 pub use error::Error;
 pub(crate) use launcher::{Launcher, Startup};

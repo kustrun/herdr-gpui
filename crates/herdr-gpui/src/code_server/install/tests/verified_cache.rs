@@ -23,10 +23,7 @@ pub(super) fn release(bytes: &[u8]) -> Release {
         commit: "a".repeat(40),
         platform: "cli-linux-x64",
         url: "https://vscode.download.prss.microsoft.com/immutable/cli.tar.gz".into(),
-        sha256: Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect(),
+        sha256: super::super::super::target::digest(bytes),
     }
 }
 

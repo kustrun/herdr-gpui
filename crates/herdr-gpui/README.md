@@ -2133,11 +2133,12 @@ nothing to what that server serves.
 
 **Settings > Code** chooses where that server comes from.
 
-**Start VS Code automatically**, the default once VS Code is found, has the
-app run the server itself. It looks for VS Code's `code` command on your
-login shell's `PATH`, then, on macOS, in
-`/Applications/Visual Studio Code.app`, and runs the `code-tunnel` program
-beside it, which is what `code serve-web` runs:
+**Start VS Code automatically** is the macOS default without an explicit
+address. The app first reuses a working VS Code CLI. If needed, it downloads a
+stable official CLI, verifies its SHA256, and installs it atomically in a
+private user cache. It changes neither the system PATH nor Herdr and requires
+no system package installation. On Windows, automatic mode still requires an
+existing VS Code installation. The CLI runs the web server as follows:
 
 ```sh
 code-tunnel serve-web --host 127.0.0.1 --port <port> \
@@ -2145,9 +2146,10 @@ code-tunnel serve-web --host 127.0.0.1 --port <port> \
 ```
 
 - The server is Microsoft software under the
-  [VS Code Server License Terms](https://aka.ms/vscode-server-license). The
-  app never accepts them for you: the VS Code tab and the settings page show them
-  with **Accept and start**, and only after that does the app pass
+  [VS Code Server License Terms](https://aka.ms/vscode-server-license) and
+  [Microsoft Privacy Statement](https://privacy.microsoft.com/en-US/privacystatement).
+  Installation and startup wait until a displayed editor needs the server and
+  you choose **Accept and start** in the tab or Settings. Only then does the app pass
   `--accept-server-license-terms`. The acceptance is saved as
   `license_accepted = true` under `[code]`.
 - It starts the first time a VS Code tab needs a page, never before, and says "Starting VS Code… (the first run downloads it)"

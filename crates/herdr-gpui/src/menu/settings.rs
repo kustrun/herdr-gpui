@@ -402,6 +402,7 @@ impl HerdrWindow {
                 Command::NewWindow
                 | Command::ToggleSidebar
                 | Command::OpenCode
+                | Command::OpenCodeOn
                 | Command::ToggleStatusBar
                 | Command::DevicesOverview
                 | Command::IncreaseFontSize

@@ -29,7 +29,7 @@ fn a_new_vs_code_page_opens_its_workspace_folder(cx: &mut gpui::TestAppContext) 
             .unwrap();
             view.live.snapshot = Some(Arc::new(shown));
             view.config.code.url = Some(WebUrl::try_from("http://127.0.0.1:8000/?tkn=x").unwrap());
-            view.browser.code_server.probe = answers;
+            view.browser.code_probe = answers;
         })
     });
     cx.update(|window, cx| view.update(cx, |view, cx| view.command(Command::OpenCode, window, cx)));

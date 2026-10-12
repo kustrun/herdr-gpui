@@ -275,22 +275,22 @@ size = 14
 size = 12
 # fallback = ["Symbols Nerd Font Mono"]
 
-# VS Code as a tab of a space's editor groups (macOS and Windows only),
-# showing what VS Code's own web server, `code serve-web`, serves. Settings >
-# Code edits this table. mode = "start" has the app run that server when a
-# VS Code tab first needs it, once you accept VS Code's server license there
-# and Microsoft Privacy Statement (license_accepted). On macOS it is the
-# default without a url: it reuses a working CLI or verifies and privately
-# installs the official CLI on demand. Windows still requires VS Code to be
-# installed. port is picked once and kept, since VS Code keeps its settings per
-# address. mode = "address" uses a server you run at url, with its ?tkn=
-# token; a url without a mode does too. Show VS Code appears in each editor
-# group's … menu once either is possible.
+# VS Code tabs. On macOS automatic/start mode opens the workspace's owning
+# machine; Open VS Code On chooses Local or a saved SSH Linux/macOS machine
+# without leaving the workspace. Offline saved SSH entries connect on demand.
+# A displayed tab starts/reuses the CLI, or verifies and installs it privately,
+# only after license acceptance. Unsupported machines never fall back to Local.
+# mode = "address" (or a url without mode) keeps direct Open VS Code on
+# Configured. Address changes affect Configured tabs only. Existing Windows
+# configured behavior is preserved; Linux clients cannot embed editors.
+# Managed origins and per-machine browser state persist across restarts. A
+# later port collision requires Retry after freeing the port. New cross-machine
+# tabs start blank; same-machine tabs may open /projects/example from launch_root.
 # [code]
 # mode = "start"
 # port = 51234
 # license_accepted = true
-# url = "http://127.0.0.1:8000/?tkn=..."
+# url = "http://127.0.0.1:8000/?tkn=fictional-token"
 
 # Native GitHub sign-in uses the public Herdr GPUI GitHub App by default.
 # Optionally override with your own Device Flow-enabled app's public client ID.

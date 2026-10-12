@@ -87,6 +87,22 @@ impl Event<Source> {
     }
 }
 
+impl Event {
+    pub(super) fn id(&self) -> TabId {
+        match self {
+            Self::Title(id, _)
+            | Self::Loaded(id, _)
+            | Self::NewWindow(id, _)
+            | Self::Posted(id, _) => *id,
+            #[cfg(target_os = "macos")]
+            Self::Opened(id, ..)
+            | Self::Closed(id)
+            | Self::Captured(id, ..)
+            | Self::Frozen(id, _) => *id,
+        }
+    }
+}
+
 /// Longer posts are dropped before they are queued.
 const MAX_POST_BYTES: usize = 64 * 1024;
 

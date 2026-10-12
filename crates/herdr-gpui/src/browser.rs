@@ -12,7 +12,7 @@ mod annotate;
 #[cfg(any(target_os = "macos", windows))]
 mod annotate_view;
 mod code;
-mod code_group;
+mod code_launch;
 mod code_start;
 mod code_view;
 mod feedback;

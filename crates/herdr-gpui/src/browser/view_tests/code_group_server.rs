@@ -34,7 +34,7 @@ fn a_new_server_keeps_vs_code_tabs_where_they_are(cx: &mut gpui::TestAppContext)
         view.update(cx, |view, _| {
             view.config.code.url =
                 Some(WebUrl::try_from("http://127.0.0.1:9000/?tkn=new").unwrap());
-            view.browser.code_server.probe = refuses;
+            view.browser.code_probe = refuses;
         })
     });
     cx.update(|window, cx| view.update(cx, |view, cx| view.command(Command::OpenCode, window, cx)));

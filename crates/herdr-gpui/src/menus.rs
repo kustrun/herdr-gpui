@@ -319,6 +319,12 @@ pub(crate) fn menus(layout: Layout) -> Vec<Menu> {
                         command: Command::OpenCode,
                     },
                 ),
+                MenuItem::action(
+                    "Open VS Code On",
+                    RunCommand {
+                        command: Command::OpenCodeOn,
+                    },
+                ),
                 MenuItem::separator(),
                 MenuItem::action(
                     "Reconnect",

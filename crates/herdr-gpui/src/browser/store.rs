@@ -297,6 +297,7 @@ impl Store {
     }
 
     /// The workspace's legacy configured-server tab, if it has one.
+    #[cfg(test)]
     pub(crate) fn code_tab(&self, scope: &Scope, workspace_id: &str) -> Option<&Tab> {
         self.code_tab_for(scope, workspace_id, &Target::Configured)
     }
@@ -334,6 +335,7 @@ impl Store {
     /// `None` while its server's address is not known, which the tab gets
     /// once it is. `None` when the app already holds the most tabs it keeps.
     /// Only builds that show pages open one.
+    #[cfg(test)]
     pub(crate) fn open_code_tab(
         &mut self,
         scope: Scope,
@@ -505,8 +507,6 @@ impl Store {
     }
 
     /// A delayed target report cannot navigate a different backing machine.
-    // Consumed by the following editor integration leaf.
-    #[allow(dead_code)]
     pub(crate) fn visited_code(
         &mut self,
         id: TabId,
@@ -533,6 +533,7 @@ impl Store {
     }
 
     /// Keeps legacy callers restricted to the configured-server tabs.
+    #[cfg(test)]
     pub(crate) fn follow_code_server(
         &mut self,
         server: &WebUrl,

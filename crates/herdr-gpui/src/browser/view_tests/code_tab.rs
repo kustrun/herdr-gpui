@@ -1,6 +1,6 @@
 //! VS Code opens as a tab of the editor groups, like a browser tab: in the
 //! group in use, beside the workspace's other tabs, to split beside a
-//! terminal or show alone. A workspace has one VS Code tab.
+//! terminal or show alone. A workspace has one VS Code tab per machine.
 use super::*;
 use crate::controls::Command;
 #[cfg(any(target_os = "macos", windows))]
@@ -18,7 +18,7 @@ fn with_server(cx: &mut gpui::TestAppContext) -> (Entity<HerdrWindow>, &mut Visu
     let (view, cx) = window(cx);
     view.update(cx, |view, _| {
         view.config.code.url = Some(WebUrl::try_from("http://127.0.0.1:8000/?tkn=x").unwrap());
-        view.browser.code_server.probe = refuses;
+        view.browser.code_probe = refuses;
     });
     draw(cx);
     (view, cx)
@@ -119,15 +119,24 @@ fn the_one_vs_code_tab_shows_beside_a_terminal_or_alone(cx: &mut gpui::TestAppCo
     assert_eq!(shown(&view, cx)[0], Shown::Page(id));
 }
 
-/// Without a server there is nothing to open, and builds that show no pages
-/// open no VS Code.
+/// macOS automatic mode opens the owning machine; Configured and builds that
+/// cannot show pages still need a server address.
 #[gpui::test]
-fn vs_code_needs_a_server_and_a_build_that_shows_pages(cx: &mut gpui::TestAppContext) {
+fn automatic_and_configured_modes_keep_their_platform_policy(cx: &mut gpui::TestAppContext) {
     let (view, cx) = window(cx);
     draw(cx);
     cx.update(|window, cx| view.update(cx, |view, cx| view.command(Command::OpenCode, window, cx)));
     draw(cx);
     assert!(code_tab(&view, cx).is_none(), "no server set");
+    #[cfg(target_os = "macos")]
+    cx.update(|_, cx| {
+        let tab_scope = scope(&view.read(cx).endpoints[0]);
+        assert!(
+            cx.global::<Store>()
+                .code_tab_for(&tab_scope, "w0", &crate::code_server::Target::Local)
+                .is_some()
+        );
+    });
     view.update(cx, |view, _| {
         view.config.code.url = Some(WebUrl::try_from("http://127.0.0.1:8000/").unwrap());
     });

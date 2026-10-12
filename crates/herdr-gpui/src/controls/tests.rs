@@ -112,6 +112,7 @@ fn catalog_has_all_native_commands_and_gpui_shortcuts() {
         (InstallBrowserSkill, &[]),
         (SplitEditor, &["cmd-\\"]),
         (OpenCode, &[]),
+        (OpenCodeOn, &[]),
         (ToggleFullScreen, &["ctrl-cmd-f"]),
         (CycleWindows, &["cmd-`"]),
     ];
@@ -189,6 +190,7 @@ fn gui_commands_never_send_daemon_requests() {
         Command::InstallBrowserSkill,
         Command::SplitEditor,
         Command::OpenCode,
+        Command::OpenCodeOn,
         Command::ToggleFullScreen,
         Command::CycleWindows,
         Command::RenameTab,

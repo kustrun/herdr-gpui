@@ -3,6 +3,30 @@ use super::*;
 use crate::browser::code::Reach;
 use crate::{code_server::Server, controls::Command};
 
+#[cfg(any(target_os = "macos", windows))]
+impl HerdrWindow {
+    fn configured_reach(&self) -> &Reach {
+        let (_, workspace) = self.browser_key().unwrap();
+        &self
+            .browser
+            .code_servers
+            .values()
+            .find(|server| server.owner.workspace == workspace)
+            .unwrap()
+            .state
+    }
+    fn configured_reach_mut(&mut self) -> &mut Reach {
+        let (_, workspace) = self.browser_key().unwrap();
+        &mut self
+            .browser
+            .code_servers
+            .values_mut()
+            .find(|server| server.owner.workspace == workspace)
+            .unwrap()
+            .state
+    }
+}
+
 fn run(view: &Entity<HerdrWindow>, cx: &mut VisualTestContext, command: Command) {
     cx.update(|window, cx| view.update(cx, |view, cx| view.command(command, window, cx)));
     draw(cx);
@@ -30,7 +54,7 @@ fn a_failed_vs_code_page_stays_failed_when_another_page_fails(cx: &mut gpui::Tes
         let tab_scope = scope(&view.read(cx).endpoints[0]);
         view.update(cx, |view, _| {
             view.config.code.url = Some(WebUrl::try_from("http://127.0.0.1:8000/").unwrap());
-            view.browser.code_server.probe = answers;
+            view.browser.code_probe = answers;
         });
         Store::update(cx, |store| {
             store.open_code_tab(tab_scope, "w0", Some(url("http://127.0.0.1:8000/")))
@@ -54,10 +78,7 @@ fn a_failed_vs_code_page_stays_failed_when_another_page_fails(cx: &mut gpui::Tes
     // The server answers, so only the failure keeps the page from retrying.
     cx.update(|window, cx| view.update(cx, |view, cx| view.ensure_code_page(window, cx)));
     view.read_with(cx, |view, _| {
-        assert!(matches!(
-            view.browser.code_server.state,
-            Reach::Ready { .. }
-        ));
+        assert!(matches!(view.configured_reach(), Reach::Ready { .. }));
     });
     draw(cx);
     view.read_with(cx, |view, _| {
@@ -71,7 +92,7 @@ fn a_failed_vs_code_page_stays_failed_when_another_page_fails(cx: &mut gpui::Tes
         #[cfg(any(target_os = "macos", windows))]
         assert!(!view.browser.pages.contains(tab), "not retried");
     });
-    assert!(cx.debug_bounds("code-placeholder").is_some());
+    assert!(cx.debug_bounds("code-unreachable").is_some());
 }
 
 // Only builds that show pages ask the server, so only they need answers.
@@ -97,7 +118,7 @@ fn show_with(
     cx.update(|_, cx| {
         view.update(cx, |view, _| {
             view.config.code.url = Some(WebUrl::try_from(address).unwrap());
-            view.browser.code_server.probe = probe;
+            view.browser.code_probe = probe;
         })
     });
     run(view, cx, Command::OpenCode);
@@ -115,8 +136,8 @@ fn an_unreachable_server_is_shown_and_asked_again(cx: &mut gpui::TestAppContext)
     assert!(cx.debug_bounds("code-unreachable").is_some());
     assert!(cx.debug_bounds("code-placeholder").is_none());
     view.read_with(cx, |view, _| {
-        let Reach::Failed { message, .. } = &view.browser.code_server.state else {
-            panic!("{:?}", view.browser.code_server.state);
+        let Reach::Failed { message, .. } = view.configured_reach() else {
+            panic!("{:?}", view.configured_reach());
         };
         assert!(message.contains("connection token"), "{message}");
     });
@@ -124,22 +145,19 @@ fn an_unreachable_server_is_shown_and_asked_again(cx: &mut gpui::TestAppContext)
     // Too soon: not asked again.
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
-            view.browser.code_server.probe = answers;
+            view.browser.code_probe = answers;
             view.ensure_code_page(window, cx);
         })
     });
     cx.run_until_parked();
     view.read_with(cx, |view, _| {
-        assert!(matches!(
-            view.browser.code_server.state,
-            Reach::Failed { .. }
-        ));
+        assert!(matches!(view.configured_reach(), Reach::Failed { .. }));
     });
 
     // Once the wait is over, the server is asked again and answers.
     cx.update(|window, cx| {
         view.update(cx, |view, cx| {
-            let Reach::Failed { at, .. } = &mut view.browser.code_server.state else {
+            let Reach::Failed { at, .. } = view.configured_reach_mut() else {
                 panic!("failed");
             };
             *at = std::time::Instant::now()
@@ -150,8 +168,8 @@ fn an_unreachable_server_is_shown_and_asked_again(cx: &mut gpui::TestAppContext)
     });
     cx.run_until_parked();
     view.read_with(cx, |view, _| {
-        let Reach::Ready { server, .. } = &view.browser.code_server.state else {
-            panic!("{:?}", view.browser.code_server.state);
+        let Reach::Ready { server, .. } = view.configured_reach() else {
+            panic!("{:?}", view.configured_reach());
         };
         assert_eq!(server, &Server::from_version(COMMIT).unwrap());
     });
@@ -191,14 +209,14 @@ fn a_new_tab_asks_the_server_again_once_an_answer_is_old(cx: &mut gpui::TestAppC
     let (view, cx) = window(cx);
     show_with(&view, cx, "http://127.0.0.1:8000/?tkn=x", answers);
     view.update(cx, |view, _| {
-        let Reach::Ready { at, .. } = &mut view.browser.code_server.state else {
-            panic!("{:?}", view.browser.code_server.state);
+        let Reach::Ready { at, .. } = view.configured_reach_mut() else {
+            panic!("{:?}", view.configured_reach());
         };
         *at = std::time::Instant::now()
             .checked_sub(std::time::Duration::from_secs(6))
             .unwrap();
         // The server stops.
-        view.browser.code_server.probe = refuses;
+        view.browser.code_probe = refuses;
     });
     focus_workspace(&view, cx, "w1");
     run(&view, cx, Command::OpenCode);
@@ -206,9 +224,9 @@ fn a_new_tab_asks_the_server_again_once_an_answer_is_old(cx: &mut gpui::TestAppC
     draw(cx);
     view.read_with(cx, |view, _| {
         assert!(
-            matches!(view.browser.code_server.state, Reach::Failed { .. }),
+            matches!(view.configured_reach(), Reach::Failed { .. }),
             "{:?}",
-            view.browser.code_server.state
+            view.configured_reach()
         );
     });
     assert!(cx.debug_bounds("code-unreachable").is_some());
@@ -240,9 +258,9 @@ fn each_new_tab_asks_the_server_again(cx: &mut gpui::TestAppContext) {
     show_with(&view, cx, "http://127.0.0.1:8000/?tkn=x", answers);
     create_page(&view, cx);
     view.update(cx, |view, _| {
-        assert_eq!(view.browser.code_server.state, Reach::Unknown);
+        assert_eq!(view.configured_reach(), &Reach::Unknown);
         // The server stops.
-        view.browser.code_server.probe = refuses;
+        view.browser.code_probe = refuses;
     });
     focus_workspace(&view, cx, "w1");
     run(&view, cx, Command::OpenCode);
@@ -250,9 +268,9 @@ fn each_new_tab_asks_the_server_again(cx: &mut gpui::TestAppContext) {
     draw(cx);
     view.read_with(cx, |view, _| {
         assert!(
-            matches!(view.browser.code_server.state, Reach::Failed { .. }),
+            matches!(view.configured_reach(), Reach::Failed { .. }),
             "{:?}",
-            view.browser.code_server.state
+            view.configured_reach()
         );
     });
     assert!(cx.debug_bounds("code-unreachable").is_some());
@@ -276,7 +294,7 @@ fn removing_the_address_closes_the_vs_code_pages(cx: &mut gpui::TestAppContext) 
     view.read_with(cx, |view, _| {
         assert!(!view.browser.pages.contains(tab));
         assert!(!view.browser.failed.contains_key(&tab));
-        assert_eq!(view.browser.code_server.state, Reach::Unknown);
+        assert!(view.browser.code_servers.is_empty());
     });
     assert!(cx.debug_bounds("code-placeholder").is_some());
 }

@@ -2,6 +2,7 @@
 use super::urls::with_token;
 use super::*;
 use core::prelude::v1::test;
+mod ownership;
 
 fn url(text: &str) -> WebUrl {
     WebUrl::try_from(text).unwrap()
@@ -75,6 +76,19 @@ fn encoded_and_duplicate_credentials_never_enter_saved_navigation() {
             "http://127.0.0.1:8000/workbench?folder=%2Fprojects%2Fexample&theme=dark&tkn=fictional-new#file"
         )
     );
+}
+
+#[test]
+fn only_absolute_machine_folders_are_opened() {
+    assert!(absolute_folder(&Target::Local, "/projects/example"));
+    assert!(!absolute_folder(&Target::Local, "projects/example"));
+    assert!(!absolute_folder(&Target::Local, "/projects/example\n"));
+    let target = Target::Ssh {
+        id: "server-a".into(),
+        fingerprint: "a".repeat(64),
+    };
+    assert!(absolute_folder(&target, "/projects/example"));
+    assert!(!absolute_folder(&target, "C:\\projects\\example"));
 }
 
 #[test]
